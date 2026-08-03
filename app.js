@@ -51,6 +51,18 @@ function girisGerekli(req, res, next) {
 }
 
 // ============================================================
+// 🛡️ ADMIN MIDDLEWARE: girisGerekli'den SONRA çalışır, req.kullanici
+// üzerindeki tam_yetki bayrağını kontrol eder. Admin olmayan bir
+// kullanıcı admin rotalarına 403 alır.
+// ============================================================
+function adminGerekli(req, res, next) {
+    if (!req.kullanici || !req.kullanici.tam_yetki) {
+        return res.status(403).json({ error: 'Bu işlem için yönetici yetkisi gereklidir.' });
+    }
+    next();
+}
+
+// ============================================================
 // 📜 İŞLEM GEÇMİŞİ (AUDIT LOG) KAYIT YARDIMCI FONKSİYONU
 // ============================================================
 async function islemLogKaydet(kullaniciId, islemTipi, aciklama, lat = null, lng = null) {
@@ -154,6 +166,95 @@ app.get('/api/gecmis', girisGerekli, async (req, res) => {
 });
 
 // ============================================================
+// 🛡️ ADMIN: TÜM KULLANICILARIN İŞLEM GEÇMİŞİ
+// Sadece tam_yetki=true olan (admin) kullanıcılar erişebilir.
+// İsteğe bağlı ?kullanici_id= filtresiyle tek bir kullanıcıya
+// daraltılabilir.
+// ============================================================
+app.get('/api/admin/gecmis', girisGerekli, adminGerekli, async (req, res) => {
+    try {
+        const { kullanici_id } = req.query;
+        const parametreler = [];
+        let kosul = '';
+        if (kullanici_id) {
+            parametreler.push(kullanici_id);
+            kosul = `WHERE g.kullanici_id = $${parametreler.length}`;
+        }
+
+        const sonuc = await pool.query(
+            `SELECT g.id, g.kullanici_id, g.islem_tipi, g.aciklama, g.lat, g.lng, g.olusturma_tarihi,
+                    k.kullanici_adi, k.ad_soyad, k.rol
+             FROM islem_gecmisi g
+             LEFT JOIN kullanicilar k ON k.id = g.kullanici_id
+             ${kosul}
+             ORDER BY g.olusturma_tarihi DESC
+             LIMIT 500`,
+            parametreler,
+        );
+        res.json(sonuc.rows);
+    } catch (err) {
+        console.error('Admin geçmiş çekme hatası:', err);
+        res.status(500).json({ error: 'İşlem geçmişi alınamadı.' });
+    }
+});
+
+// 🛡️ ADMIN: İŞLEM GEÇMİŞİ VE İLİŞKİLİ VERİYİ SOFT DELETE İLE SİLME
+app.delete('/api/admin/gecmis/:id', girisGerekli, adminGerekli, async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // 1. Önce silinecek log kaydını bulalım
+        const logRes = await pool.query(`SELECT * FROM islem_gecmisi WHERE id = $1`, [id]);
+        if (logRes.rows.length === 0) {
+            return res.status(404).json({ error: 'Log kaydı bulunamadı.' });
+        }
+
+        const log = logRes.rows[0];
+
+        // 2. Eğer bir Nokta Ekleme eylemiyse cbs_noktalar tablosunda soft delete yap
+        if (log.islem_tipi === 'NOKTA_EKLEME' && log.lat && log.lng) {
+            await pool.query(
+                `UPDATE cbs_noktalar 
+                 SET silindi_mi = TRUE 
+                 WHERE id = (
+                     SELECT id FROM cbs_noktalar 
+                     WHERE ST_Equals(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) 
+                     ORDER BY id DESC LIMIT 1
+                 )`,
+                [log.lng, log.lat]
+            );
+        }
+        // 3. Eğer bir Adres/Bina Ekleme eylemiyse adresler tablosunda soft delete yap
+        else if (log.islem_tipi === 'ADRES_EKLEME' && log.lat && log.lng) {
+            await pool.query(
+                `UPDATE adresler 
+                 SET silindi_mi = TRUE 
+                 WHERE id = (
+                     SELECT id FROM adresler 
+                     WHERE ST_Equals(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) 
+                     ORDER BY id DESC LIMIT 1
+                 )`,
+                [log.lng, log.lat]
+            );
+        }
+
+        // 4. İşlem geçmişi kaydını temizle
+        await pool.query(`DELETE FROM islem_gecmisi WHERE id = $1`, [id]);
+
+        await islemLogKaydet(
+            req.kullanici.id,
+            'GECMIS_SILME',
+            `Yönetici tarafından #${id} numaralı kayıt ve ilişkili coğrafi veri pasife çekildi (Soft Delete).`
+        );
+
+        res.json({ message: 'Kayıt ve ilişkili veri başarıyla silindi.' });
+    } catch (err) {
+        console.error('Admin geçmiş silme hatası:', err);
+        res.status(500).json({ error: 'Kayıt silinirken hata oluştu.' });
+    }
+});
+
+// ============================================================
 // 📝 GENEL AKTİVİTE LOGLAMA API'Sİ
 // Çizim, GeoJSON yükleme, WFS sorgusu, rapor alma, adres arama gibi
 // tamamen tarayıcı tarafında gerçekleşen ama geçmişte görünmesi
@@ -194,13 +295,15 @@ app.get("/api/iller", async (req, res) => {
     res.status(500).send("Veri çekilemedi.");
   }
 });
-/*/ 3. NOKTA (POINTS) API'Sİ (GET)
-app.get('/api/noktalar', async (req, res) => {
+// 3. CBS NOKTALARI API'Sİ (GET - SPATIAL YETKİLİ)
+app.get('/api/noktalar', girisGerekli, async (req, res) => {
     try {
+        const yetkiKosulu = yetkiKosuluUret(req.kullanici, 'n.geom');
+
         const query = `
         SELECT jsonb_build_object(
             'type',     'FeatureCollection',
-            'features', jsonb_agg(features.feature)
+            'features', COALESCE(jsonb_agg(features.feature), '[]'::jsonb)
         )
         FROM (
           SELECT jsonb_build_object(
@@ -213,16 +316,17 @@ app.get('/api/noktalar', async (req, res) => {
               'tip',        tip
             )
           ) AS feature
-          FROM cbs_noktalar
+          FROM cbs_noktalar n
+          WHERE (n.silindi_mi IS FALSE OR n.silindi_mi IS NULL) ${yetkiKosulu}
         ) features;
         `;
         const result = await pool.query(query);
         res.json(result.rows[0].jsonb_build_object || { type: "FeatureCollection", features: [] });
     } catch (err) {
-        console.error(err);
+        console.error('Noktalar çekilirken hata:', err);
         res.status(500).json({ error: 'Noktalar çekilirken hata oluştu' });
     }
-});*/
+});
 
 /*/ 4. ÇİZGİ (LINESTRINGS) API'Sİ (GET)
 app.get('/api/yollar', async (req, res) => {
@@ -532,7 +636,188 @@ app.get('/api/poi-verileri', girisGerekli, async (req, res) => {
         res.status(500).json({ error: "POI verileri çekilirken veritabanı hatası oluştu." });
     }
 });
-// 8. TAMPON BÖLGE (BUFFER) ANALİZİ API'Sİ
+// ============================================================
+// 🏠 BİNA / ADRES KAYIT MODÜLÜ (MAKS BENZERİ)
+// ============================================================
+
+// Ortak yardımcı: giriş yapan kullanıcının yetki bölgesine göre
+// SQL WHERE koşulunu üretir (poi-verileri route'undaki mantığın aynısı,
+// tek bir yerde tutmak yerine burada da tekrar ediyoruz ki route'lar
+// birbirinden bağımsız kalsın).
+function yetkiKosuluUret(kullanici, geomIfadesi) {
+    const { bolge, tam_yetki } = kullanici;
+    if (tam_yetki) return '';
+
+    if (bolge === 'Ankara İli') {
+        return `AND ST_Intersects(${geomIfadesi}, (
+            SELECT geom FROM gadm41_tur_1 WHERE lower(name_1) LIKE '%ankara%' OR lower(nl_name_1) LIKE '%ankara%' LIMIT 1
+        ))`;
+    } else if (bolge === 'İç Anadolu Bölgesi') {
+        return `AND ST_Intersects(${geomIfadesi}, (
+            SELECT ST_Union(geom) FROM gadm41_tur_1
+            WHERE lower(name_1) IN ('ankara', 'eskisehir', 'kayseri', 'konya', 'sivas', 'kirikkale', 'aksaray', 'karaman', 'kirsehir', 'nigde', 'nevsehir', 'yozgat', 'cankiri')
+               OR lower(nl_name_1) IN ('ankara', 'eskişehir', 'kayseri', 'konya', 'sivas', 'kırıkkale', 'aksaray', 'karaman', 'kırşehir', 'niğde', 'nevşehir', 'yozgat', 'çankırı')
+        ))`;
+    } else if (bolge === 'Yenimahalle İlçesi') {
+        return `AND ST_Intersects(${geomIfadesi}, ST_MakeEnvelope(32.65, 39.90, 32.85, 40.08, 4326))`;
+    }
+    return '';
+}
+// 📍 BİNA/ADRES LİSTESİ
+app.get('/api/adresler', girisGerekli, async (req, res) => {
+    try {
+        const { mahalle, sokak } = req.query;
+        const yetkiKosulu = yetkiKosuluUret(req.kullanici, 'a.geom');
+
+        const parametreler = [];
+        let metinKosulu = '';
+        if (mahalle) {
+            parametreler.push(`%${mahalle.toLowerCase()}%`);
+            metinKosulu += ` AND lower(a.mahalle) LIKE $${parametreler.length}`;
+        }
+        if (sokak) {
+            parametreler.push(`%${sokak.toLowerCase()}%`);
+            metinKosulu += ` AND lower(a.sokak) LIKE $${parametreler.length}`;
+        }
+
+        const sorgu = `
+            SELECT jsonb_build_object(
+                'type', 'FeatureCollection',
+                'features', COALESCE(jsonb_agg(
+                    jsonb_build_object(
+                        'type', 'Feature',
+                        'id', a.id,
+                        'geometry', ST_AsGeoJSON(a.geom)::jsonb,
+                        'properties', jsonb_build_object(
+                            'id', a.id,
+                            'il', a.il,
+                            'ilce', a.ilce,
+                            'mahalle', a.mahalle,
+                            'sokak', a.sokak,
+                            'disKapiNo', a.dis_kapi_no,
+                            'binaAdi', a.bina_adi,
+                            'katSayisi', a.kat_sayisi,
+                            'bagimsizBolumSayisi', a.bagimsiz_bolum_sayisi,
+                            'yapiDurumu', a.yapi_durumu,
+                            'olusturmaTarihi', a.olusturma_tarihi
+                        )
+                    )
+                ), '[]'::jsonb)
+            ) AS geojson
+            FROM (
+                SELECT * FROM adresler a
+                WHERE (a.silindi_mi IS FALSE OR a.silindi_mi IS NULL) ${yetkiKosulu} ${metinKosulu}
+                ORDER BY a.olusturma_tarihi DESC
+                LIMIT 1000
+            ) a;
+        `;
+
+        const sonuc = await pool.query(sorgu, parametreler);
+        res.json(sonuc.rows[0]?.geojson || { type: 'FeatureCollection', features: [] });
+    } catch (err) {
+        console.error('Adres listesi hatası:', err);
+        res.status(500).json({ error: 'Adres verileri çekilirken hata oluştu.' });
+    }
+});
+
+// 🏠 YENİ BİNA/ADRES KAYDI EKLEME
+app.post('/api/adresler', girisGerekli, async (req, res) => {
+    const {
+        il, ilce, mahalle, sokak, disKapiNo, binaAdi,
+        katSayisi, bagimsizBolumSayisi, yapiDurumu, lat, lng,
+    } = req.body;
+
+    if (!il || !ilce || !mahalle || !yapiDurumu || lat === undefined || lng === undefined) {
+        return res.status(400).json({ error: 'İl, ilçe, mahalle, yapı durumu ve konum bilgisi zorunludur.' });
+    }
+
+    const GECERLI_DURUMLAR = ['ruhsatli', 'ruhsatsiz', 'insaat', 'yikik'];
+    if (!GECERLI_DURUMLAR.includes(yapiDurumu)) {
+        return res.status(400).json({ error: 'Geçersiz yapı durumu.' });
+    }
+
+    try {
+        const insertQuery = `
+            INSERT INTO adresler
+                (il, ilce, mahalle, sokak, dis_kapi_no, bina_adi, kat_sayisi, bagimsiz_bolum_sayisi, yapi_durumu, geom, ekleyen_kullanici_id)
+            VALUES
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, ST_SetSRID(ST_MakePoint($10, $11), 4326), $12)
+            RETURNING id;
+        `;
+        const result = await pool.query(insertQuery, [
+            il, ilce, mahalle, sokak || null, disKapiNo || null, binaAdi || null,
+            katSayisi || 0, bagimsizBolumSayisi || 0, yapiDurumu, lng, lat, req.kullanici.id,
+        ]);
+
+        await islemLogKaydet(
+            req.kullanici.id,
+            'ADRES_EKLEME',
+            `"${mahalle}, ${sokak || '-'} ${disKapiNo || ''}" adresine yeni bina kaydı eklendi (${yapiDurumu}).`,
+            lat,
+            lng,
+        );
+
+        res.status(201).json({ message: 'Bina/adres kaydı başarıyla eklendi!', id: result.rows[0].id });
+    } catch (err) {
+        console.error('Adres ekleme hatası:', err);
+        res.status(500).json({ error: 'Adres kaydedilirken veritabanı hatası oluştu.' });
+    }
+});
+
+// 📋 BİR BİNANIN BAĞIMSIZ BÖLÜMLERİNİ LİSTELEME
+app.get('/api/adresler/:id/bagimsiz-bolumler', girisGerekli, async (req, res) => {
+    try {
+        const sonuc = await pool.query(
+            `SELECT id, kapi_no, kullanim_turu, olusturma_tarihi
+             FROM bagimsiz_bolumler
+             WHERE adres_id = $1
+             ORDER BY kapi_no ASC`,
+            [req.params.id],
+        );
+        res.json(sonuc.rows);
+    } catch (err) {
+        console.error('Bağımsız bölüm listesi hatası:', err);
+        res.status(500).json({ error: 'Bağımsız bölümler alınamadı.' });
+    }
+});
+
+// 📋 BİR BİNAYA YENİ BAĞIMSIZ BÖLÜM (DAİRE/İŞYERİ) EKLEME
+app.post('/api/adresler/:id/bagimsiz-bolumler', girisGerekli, async (req, res) => {
+    const { kapiNo, kullanimTuru } = req.body;
+    if (!kapiNo || !kullanimTuru) {
+        return res.status(400).json({ error: 'Kapı no ve kullanım türü zorunludur.' });
+    }
+
+    try {
+        const result = await pool.query(
+            `INSERT INTO bagimsiz_bolumler (adres_id, kapi_no, kullanim_turu, ekleyen_kullanici_id)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id`,
+            [req.params.id, kapiNo, kullanimTuru, req.kullanici.id],
+        );
+
+        // Binadaki toplam bağımsız bölüm sayısını da otomatik güncelleyelim
+        await pool.query(
+            `UPDATE adresler SET bagimsiz_bolum_sayisi = (
+                SELECT COUNT(*) FROM bagimsiz_bolumler WHERE adres_id = $1
+             ) WHERE id = $1`,
+            [req.params.id],
+        );
+
+        await islemLogKaydet(
+            req.kullanici.id,
+            'BAGIMSIZ_BOLUM_EKLEME',
+            `Bina #${req.params.id} için "${kapiNo}" numaralı bağımsız bölüm eklendi (${kullanimTuru}).`,
+        );
+
+        res.status(201).json({ message: 'Bağımsız bölüm kaydedildi!', id: result.rows[0].id });
+    } catch (err) {
+        console.error('Bağımsız bölüm ekleme hatası:', err);
+        res.status(500).json({ error: 'Bağımsız bölüm kaydedilirken hata oluştu.' });
+    }
+});
+
+
 app.post('/api/analiz/buffer', girisGerekli, async (req, res) => {
   const { geometry, distance } = req.body;
 

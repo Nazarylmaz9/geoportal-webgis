@@ -414,6 +414,11 @@
         display: none;
         font-size: 12px;
       }
+      /* 🌟 İki kart aynı anda açılırsa yan yana dursunlar */
+      #binaLejant.visible {
+        display: block;
+        right: 215px; /* OSM kartının hemen soluna yerleşir */
+      }
       .osm-legend.visible {
         display: block;
       }
@@ -910,6 +915,9 @@
         <a href="javascript:void(0)" onclick="toggleIstatistikPanel()"
           >İstatistik</a
         >
+        <a href="javascript:void(0)" onclick="toggleAdresRaporPanel()"
+          >Adres Raporu</a
+        >
         <a href="javascript:void(0)" onclick="openCoordModal()">Koordinat</a>
         <a href="javascript:void(0)" onclick="openHakkindaModal()">Hakkında</a>
         <div style="position: relative; display: inline-block">
@@ -1059,6 +1067,30 @@
             </button>
 
             <button
+              id="btnAdminGecmis"
+              onclick="openAdminGecmisModal()"
+              style="
+                width: 100%;
+                margin-top: 6px;
+                background: #fdf2e9;
+                border: 1px solid #f6d9b8;
+                color: #9a5b13;
+                padding: 7px;
+                border-radius: 8px;
+                font-size: 11px;
+                font-weight: 600;
+                cursor: pointer;
+                display: none;
+                align-items: center;
+                justify-content: center;
+                gap: 6px;
+                transition: background 0.2s;
+              "
+            >
+              🛡️ Yönetici Paneli (Tüm Kullanıcılar)
+            </button>
+
+            <button
               onclick="kullaniciCikisYap()"
               style="
                 width: 100%;
@@ -1131,6 +1163,23 @@
                 📍 OSM Nokta Verileri (kategoriye göre renk/şekil, yetki
                 bölgenizle sınırlı)
               </label>
+              <label>
+                <input
+                  type="checkbox"
+                  id="chkBinalar"
+                  onchange="toggleKatman('binalar')"
+                />
+                🏠 Bina / Adres Kayıtları (MAKS benzeri, yapı durumuna göre
+                renk/şekil)
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  id="chkNoktalar"
+                  onchange="toggleKatman('noktalar')"
+                />
+                📍 CBS Noktaları (Özel Mekanlar)
+              </label>
             </div>
           </div>
         </div>
@@ -1146,6 +1195,15 @@
           >
             <span class="status-dot"></span>
             <span id="editModeText">Düzenleme Modu: KAPALI</span>
+          </div>
+          <div
+            id="binaEklemeModeBtn"
+            class="edit-mode-badge"
+            onclick="toggleBinaEklemeModu()"
+            style="margin-top: 8px"
+          >
+            <span class="status-dot"></span>
+            <span id="binaEklemeModeText">🏠 Bina Ekleme Modu: KAPALI</span>
           </div>
         </div>
         <!-- 📊 İSTATİSTİK PENCERESİ (SAĞ ÜSTTE AÇILAN - BÜYÜTÜLMÜŞ & TAM LİSTE) -->
@@ -1195,6 +1253,49 @@
             <div class="stat-sub-item full-width">
               <span class="stat-sub-label">📍 Diğer / Tanımsız:</span>
               <strong id="statDiger">0</strong>
+            </div>
+          </div>
+        </div>
+
+        <!-- 🏠 ADRES ENVANTERİ RAPORU (MAKS Benzeri Bina/Adres Özeti) -->
+        <div id="adresRaporPanel" class="dashboard-card" style="display: none">
+          <div class="dashboard-header">
+            <span>🏠 Adres Envanteri Raporu</span>
+            <button
+              onclick="toggleAdresRaporPanel()"
+              class="dashboard-toggle-btn"
+            >
+              ✕
+            </button>
+          </div>
+          <div class="dashboard-body">
+            <div class="stat-item main-stat">
+              <span class="stat-label">🏢 Toplam Bina/Adres Kaydı:</span>
+              <span id="adresStatToplam" class="stat-value">0</span>
+            </div>
+
+            <div class="stat-grid">
+              <div class="stat-sub-item">
+                <span class="stat-sub-label">✅ Ruhsatlı:</span>
+                <strong id="adresStatRuhsatli">0</strong>
+              </div>
+              <div class="stat-sub-item">
+                <span class="stat-sub-label">🚫 Ruhsatsız/Kaçak:</span>
+                <strong id="adresStatRuhsatsiz">0</strong>
+              </div>
+              <div class="stat-sub-item">
+                <span class="stat-sub-label">🏗️ İnşaat Halinde:</span>
+                <strong id="adresStatInsaat">0</strong>
+              </div>
+              <div class="stat-sub-item">
+                <span class="stat-sub-label">💥 Yıkık/Boş Arsa:</span>
+                <strong id="adresStatYikik">0</strong>
+              </div>
+            </div>
+
+            <div class="stat-sub-item full-width">
+              <span class="stat-sub-label">📋 Toplam Bağımsız Bölüm:</span>
+              <strong id="adresStatBagimsizBolum">0</strong>
             </div>
           </div>
         </div>
@@ -1393,10 +1494,16 @@
 
         <div id="map"></div>
 
-        <!-- 🎨 OSM KATEGORİ LEJANTI (SAĞ ALT) -->
+        <!-- 🎨 OSM KATEGORİ LEJANTI KARTI (SAĞ ALT) -->
         <div id="osmLejant" class="osm-legend">
           <div class="osm-legend-title">📍 OSM Kategorileri</div>
           <div id="osmLejantIcerik"></div>
+        </div>
+
+        <!-- 🏠 BİNA DURUMLARI LEJANTI KARTI (OSM KARTININ YANINDA/ÜSTÜNDE) -->
+        <div id="binaLejant" class="osm-legend">
+          <div class="osm-legend-title">🏠 Bina Durumları</div>
+          <div id="binaLejantIcerik"></div>
         </div>
 
         <!-- 📁 HARİTA İÇİ YÜZEN GEOJSON KARTI (SOL ALT) -->
@@ -1475,6 +1582,37 @@
             >
               Bilgi almak için haritadaki nesnelere tıklayın.
             </div>
+          </div>
+
+          <div class="panel-section">
+            <h5>🏠 Adres Arama (Mahalle / Sokak)</h5>
+            <p style="font-size: 12px; color: #64748b; margin-bottom: 8px">
+              "Bina / Adres Kayıtları" katmanını açık tutarak arama yap.
+            </p>
+            <label for="aramaMahalle" style="font-size: 12px; color: #475569"
+              >Mahalle:</label
+            >
+            <input
+              type="text"
+              id="aramaMahalle"
+              class="form-input"
+              placeholder="Örn: Batıkent"
+            />
+            <label for="aramaSokak" style="font-size: 12px; color: #475569"
+              >Sokak / Cadde:</label
+            >
+            <input
+              type="text"
+              id="aramaSokak"
+              class="form-input"
+              placeholder="Örn: İstiklal"
+            />
+            <button class="btn-primary" onclick="adresVeritabaniniAra()">
+              🔍 Adres Veritabanında Ara
+            </button>
+            <button class="btn-secondary" onclick="adresAramaSifirla()">
+              Filtreyi Temizle
+            </button>
           </div>
 
           <div class="panel-section">
@@ -2183,6 +2321,199 @@
       </div>
     </div>
 
+    <!-- 🛡️ YÖNETİCİ PANELİ: TÜM KULLANICILARIN İŞLEM GEÇMİŞİ MODALI -->
+    <div
+      id="adminGecmisModal"
+      style="
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(5px);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+      "
+    >
+      <div
+        style="
+          background: white;
+          width: 620px;
+          max-height: 82vh;
+          padding: 24px;
+          border-radius: 16px;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+          position: relative;
+          display: flex;
+          flex-direction: column;
+        "
+      >
+        <button
+          onclick="closeAdminGecmisModal()"
+          style="
+            position: absolute;
+            right: 16px;
+            top: 16px;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #64748b;
+          "
+        >
+          ✕
+        </button>
+        <h3 style="margin-bottom: 4px; color: #0f172a">
+          🛡️ Yönetici Paneli — Tüm Kullanıcıların İşlemleri
+        </h3>
+        <p style="font-size: 12px; color: #64748b; margin-bottom: 14px">
+          Sistemdeki tüm kullanıcıların işlem geçmişi. Bir kaydı kalıcı olarak
+          silmek için 🗑️ simgesine tıklayın.
+        </p>
+
+        <div
+          id="adminGecmisListesi"
+          style="
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-right: 4px;
+          "
+        >
+          <div
+            style="
+              font-size: 12px;
+              color: #94a3b8;
+              text-align: center;
+              padding: 20px;
+            "
+          >
+            Yükleniyor...
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 🏠 BAĞIMSIZ BÖLÜM DETAYI MODALI -->
+    <div
+      id="binaDetayModal"
+      style="
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(5px);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+      "
+    >
+      <div
+        style="
+          background: white;
+          width: 460px;
+          max-height: 82vh;
+          padding: 24px;
+          border-radius: 16px;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+          position: relative;
+          display: flex;
+          flex-direction: column;
+        "
+      >
+        <button
+          onclick="closeBinaDetayModal()"
+          style="
+            position: absolute;
+            right: 16px;
+            top: 16px;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #64748b;
+          "
+        >
+          ✕
+        </button>
+        <h3 style="margin-bottom: 4px; color: #0f172a">
+          🏠 Bina Detayı ve Bağımsız Bölümler
+        </h3>
+        <p
+          id="binaDetayAdresBaslik"
+          style="font-size: 12px; color: #64748b; margin-bottom: 14px"
+        >
+          -
+        </p>
+
+        <div
+          id="bagimsizBolumListesi"
+          style="
+            overflow-y: auto;
+            max-height: 220px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 14px;
+          "
+        >
+          <div
+            style="
+              font-size: 12px;
+              color: #94a3b8;
+              text-align: center;
+              padding: 12px;
+            "
+          >
+            Yükleniyor...
+          </div>
+        </div>
+
+        <div style="border-top: 1px solid #f1f5f9; padding-top: 12px">
+          <span
+            style="
+              font-size: 11px;
+              font-weight: bold;
+              color: #475569;
+              text-transform: uppercase;
+              display: block;
+              margin-bottom: 8px;
+            "
+            >Yeni Bağımsız Bölüm Ekle</span
+          >
+          <div style="display: flex; gap: 8px; margin-bottom: 8px">
+            <input
+              type="text"
+              id="yeniKapiNo"
+              class="form-input"
+              placeholder="Kapı No (Örn: 4)"
+              style="margin-bottom: 0"
+            />
+            <select
+              id="yeniKullanimTuru"
+              class="form-select"
+              style="margin-bottom: 0"
+            >
+              <option value="mesken">🏠 Mesken</option>
+              <option value="isyeri">🏢 İşyeri</option>
+              <option value="bos">⬜ Boş</option>
+            </select>
+          </div>
+          <button class="btn-primary" onclick="bagimsizBolumEkle()">
+            💾 Bağımsız Bölümü Kaydet
+          </button>
+        </div>
+      </div>
+    </div>
+
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
     <script src="https://unpkg.com/leaflet-draw@1.0.4/dist/leaflet.draw.js"></script>
@@ -2380,34 +2711,34 @@
             latlng.lng.toFixed(6);
 
           const popupIcerik = `
-            <div style="font-family: inherit; width: 220px; padding: 4px;">
-              <h6 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a; display: flex; align-items: center; gap: 6px;">
-                📍 Yeni Nokta Ekle
-              </h6>
-              <div style="display: flex; flex-direction: column; gap: 8px;">
-                <div>
-                  <label style="font-size: 11px; color: #64748b; font-weight: 600; display: block; margin-bottom: 2px;">Nokta Adı</label>
-                  <input type="text" id="noktaIsim" placeholder="Örn: Kadıköy Meydanı"
-                    style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
-                </div>
-                <div>
-                  <label style="font-size: 11px; color: #64748b; font-weight: 600; display: block; margin-bottom: 2px;">Mekan Tipi</label>
-                  <select id="noktaTip"
-                    style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; background-color: white; box-sizing: border-box;">
-                    <option value="Tarihi Mekan">🏛️ Tarihi Mekan</option>
-                    <option value="Hastane">🏥 Hastane</option>
-                    <option value="Park/Yeşil Alan">🌲 Park / Yeşil Alan</option>
-                    <option value="Restoran/Kafeterya">☕ Restoran / Kafe</option>
-                    <option value="Diğer">📍 Diğer</option>
-                  </select>
-                </div>
-                <button onclick="kaydetNokta(${latlng.lat}, ${latlng.lng})"
-                  style="margin-top: 4px; width: 100%; padding: 7px; background-color: #0E8577; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
-                  💾 Veritabanına Kaydet
-                </button>
-              </div>
-            </div>
-          `;
+                  <div style="font-family: inherit; width: 220px; padding: 4px;">
+                    <h6 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                      📍 Yeni Nokta Ekle
+                    </h6>
+                    <div style="display: flex; flex-direction: column; gap: 8px;">
+                      <div>
+                        <label style="font-size: 11px; color: #64748b; font-weight: 600; display: block; margin-bottom: 2px;">Nokta Adı</label>
+                        <input type="text" id="noktaIsim" placeholder="Örn: Kadıköy Meydanı"
+                          style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                      </div>
+                      <div>
+                        <label style="font-size: 11px; color: #64748b; font-weight: 600; display: block; margin-bottom: 2px;">Mekan Tipi</label>
+                        <select id="noktaTip"
+                          style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; background-color: white; box-sizing: border-box;">
+                          <option value="Tarihi Mekan">🏛️ Tarihi Mekan</option>
+                          <option value="Hastane">🏥 Hastane</option>
+                          <option value="Park/Yeşil Alan">🌲 Park / Yeşil Alan</option>
+                          <option value="Restoran/Kafeterya">☕ Restoran / Kafe</option>
+                          <option value="Diğer">📍 Diğer</option>
+                        </select>
+                      </div>
+                      <button onclick="kaydetNokta(${latlng.lat}, ${latlng.lng})"
+                        style="margin-top: 4px; width: 100%; padding: 7px; background-color: #0E8577; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                        💾 Veritabanına Kaydet
+                      </button>
+                    </div>
+                  </div>
+                `;
           layer.bindPopup(popupIcerik).openPopup();
         }
       });
@@ -2509,6 +2840,10 @@
         var btn = document.getElementById("editModeBtn");
         var text = document.getElementById("editModeText");
         if (editMode) {
+          // İki mod aynı anda karışmasın diye bina ekleme modunu kapatıyoruz
+          if (typeof binaEklemeModu !== "undefined" && binaEklemeModu) {
+            window.toggleBinaEklemeModu();
+          }
           text.innerHTML = "Düzenleme Modu: AÇIK";
           btn.classList.add("active");
           map.getContainer().style.cursor = "crosshair";
@@ -2518,6 +2853,25 @@
           map.getContainer().style.cursor = "";
         }
       }
+
+      // 🏠 Bina Ekleme Modu (haritaya tıklayınca adres formu açar)
+      var binaEklemeModu = false;
+      window.toggleBinaEklemeModu = function () {
+        binaEklemeModu = !binaEklemeModu;
+        var btn = document.getElementById("binaEklemeModeBtn");
+        var text = document.getElementById("binaEklemeModeText");
+        if (binaEklemeModu) {
+          // İki mod aynı anda karışmasın diye normal düzenleme modunu kapatıyoruz
+          if (editMode) toggleEditMode();
+          text.innerHTML = "🏠 Bina Ekleme Modu: AÇIK";
+          btn.classList.add("active");
+          map.getContainer().style.cursor = "crosshair";
+        } else {
+          text.innerHTML = "🏠 Bina Ekleme Modu: KAPALI";
+          btn.classList.remove("active");
+          map.getContainer().style.cursor = "";
+        }
+      };
 
       // Altlıklar
       var osm = L.tileLayer(
@@ -2847,10 +3201,10 @@
           const satir = document.createElement("label");
           satir.className = "osm-legend-item";
           satir.innerHTML = `
-            <span class="osm-legend-shape">${sekilSvgOlustur(kat.sekil, kat.renk)}</span>
-            <span class="osm-legend-label">${kat.emoji} ${kat.ad}</span>
-            <input type="checkbox" checked onchange="osmKategoriGoster('${kod}', this.checked)" />
-          `;
+                  <span class="osm-legend-shape">${sekilSvgOlustur(kat.sekil, kat.renk)}</span>
+                  <span class="osm-legend-label">${kat.emoji} ${kat.ad}</span>
+                  <input type="checkbox" checked onchange="osmKategoriGoster('${kod}', this.checked)" />
+                `;
           kutu.appendChild(satir);
         });
       }
@@ -2865,10 +3219,201 @@
         }
       };
 
+      // ============================================================
+      // 🏠 BİNA / ADRES KAYIT MODÜLÜ (MAKS BENZERİ)
+      // OSM kategorileriyle aynı renk+şekil mantığını (sekilSvgOlustur)
+      // yapı durumu için yeniden kullanıyoruz.
+      // ============================================================
+      const BINA_DURUMLARI = {
+        ruhsatli: {
+          ad: "Ruhsatlı Yapı",
+          renk: "#16a34a",
+          sekil: "daire",
+          emoji: "✅",
+        },
+        ruhsatsiz: {
+          ad: "Ruhsatsız / Kaçak Yapı",
+          renk: "#ef4444",
+          sekil: "kare",
+          emoji: "🚫",
+        },
+        insaat: {
+          ad: "İnşaat Halinde",
+          renk: "#f97316",
+          sekil: "ucgen",
+          emoji: "🏗️",
+        },
+        yikik: {
+          ad: "Yıkık / Boş Arsa",
+          renk: "#64748b",
+          sekil: "elmas",
+          emoji: "💥",
+        },
+      };
+
+      function binaMarkerIkonuOlustur(kod) {
+        const kat = BINA_DURUMLARI[kod] || BINA_DURUMLARI.ruhsatli;
+        return L.divIcon({
+          className: "osm-marker-icon",
+          html: sekilSvgOlustur(kat.sekil, kat.renk),
+          iconSize: [26, 26],
+          iconAnchor: [13, 13],
+          popupAnchor: [0, -13],
+        });
+      }
+
+      // Yapı durumuna göre katman grupları (OSM kategorileriyle aynı desen)
+      window.binaKategoriGruplari = {};
+      Object.keys(BINA_DURUMLARI).forEach((kod) => {
+        window.binaKategoriGruplari[kod] = L.layerGroup();
+      });
+
+      function binaLejantiOlustur() {
+        const kutu = document.getElementById("binaLejantIcerik");
+        if (!kutu) return;
+        kutu.innerHTML = "";
+        Object.entries(BINA_DURUMLARI).forEach(([kod, kat]) => {
+          const satir = document.createElement("label");
+          satir.className = "osm-legend-item";
+          satir.innerHTML = `
+            <span class="osm-legend-shape">${sekilSvgOlustur(kat.sekil, kat.renk)}</span>
+            <span class="osm-legend-label">${kat.emoji} ${kat.ad}</span>
+            <input type="checkbox" checked onchange="binaKategoriGoster('${kod}', this.checked)" />
+          `;
+          kutu.appendChild(satir);
+        });
+      }
+
+      window.binaKategoriGoster = function (kod, goster) {
+        const grup = window.binaKategoriGruplari[kod];
+        if (!grup) return;
+        if (goster) {
+          if (document.getElementById("chkBinalar").checked) map.addLayer(grup);
+        } else {
+          map.removeLayer(grup);
+        }
+      };
+
+      // Bina verisi sadece bir kez (checkbox ilk işaretlendiğinde) çekilir.
+      // Yeni bina eklendiğinde veya arama yapıldığında yeniden çekilebilmesi
+      // için bu bayrağı dışarıdan da sıfırlayabiliyoruz.
+      window.binaVerisiYuklendiMi = false;
+
+      window.binaVerisiYuklendiMi = true;
+
+      function yukleBinaVerileri(ekParametreler = "") {
+        Object.values(window.binaKategoriGruplari).forEach((grup) =>
+          grup.clearLayers(),
+        );
+
+        yetkiliFetch(`/api/adresler${ekParametreler}`)
+          .then((res) => res.json())
+          .then((data) => {
+            if (!data || !data.features) return;
+
+            // 🛡️ KRİTİK DÜZELTME: Sadece yetki bölgesindeki binaları haritaya ekle!
+            let gosterilecekBinalar = data.features;
+
+            if (
+              window.aktifYetkiPoligonu &&
+              window.aktifKullanici &&
+              !window.aktifKullanici.tamYetki
+            ) {
+              gosterilecekBinalar = data.features.filter((f) => {
+                try {
+                  let yetkiGeom = window.aktifYetkiPoligonu;
+                  if (
+                    yetkiGeom.type === "FeatureCollection" &&
+                    yetkiGeom.features &&
+                    yetkiGeom.features.length > 0
+                  ) {
+                    yetkiGeom = yetkiGeom.features[0];
+                  }
+
+                  // Bina noktasının yetki poligonunun İÇİNDE kalıp kalmadığını denetler
+                  return turf.booleanPointInPolygon(f.geometry, yetkiGeom);
+                } catch (e) {
+                  // Hata durumunda BBOX (kutucuk) kontrolü ile koruma sağla
+                  try {
+                    const bbox = turf.bbox(window.aktifYetkiPoligonu);
+                    const pt = f.geometry.coordinates; // [lng, lat]
+                    return (
+                      pt[0] >= bbox[0] &&
+                      pt[1] >= bbox[1] &&
+                      pt[0] <= bbox[2] &&
+                      pt[1] <= bbox[3]
+                    );
+                  } catch (err) {
+                    return false;
+                  }
+                }
+              });
+            }
+
+            L.geoJSON(
+              { type: "FeatureCollection", features: gosterilecekBinalar },
+              {
+                pointToLayer: function (feature, latlng) {
+                  const kod = feature.properties.yapiDurumu || "ruhsatli";
+                  return L.marker(latlng, {
+                    icon: binaMarkerIkonuOlustur(kod),
+                  });
+                },
+                onEachFeature: function (feature, layer) {
+                  const p = feature.properties;
+                  const kat =
+                    BINA_DURUMLARI[p.yapiDurumu] || BINA_DURUMLARI.ruhsatli;
+
+                  layer.on({
+                    click: function (e) {
+                      if (e.originalEvent) {
+                        L.DomEvent.stopPropagation(e.originalEvent);
+                        e.originalEvent._stopped = true;
+                      }
+                      info.update(p);
+                      sagPaneliGuncelle("Bina / Adres Kaydı", p);
+                    },
+                  });
+
+                  const adresMetni = `${p.mahalle || ""}${p.sokak ? ", " + p.sokak : ""}${p.disKapiNo ? " No:" + p.disKapiNo : ""}`;
+                  const popupIcerik = `
+                    <div style="font-size: 13px; padding: 2px; width: 220px;">
+                      <strong>${kat.emoji} ${p.binaAdi || "İsimsiz Bina"}</strong><br/>
+                      <span style="color:#64748b; font-size:11px;">${p.il}, ${p.ilce}</span><br/>
+                      <span style="color:#64748b; font-size:11px;">${adresMetni}</span><br/>
+                      <span style="color:#334155; font-size:11px; font-weight:600;">Durum: ${kat.ad}</span><br/>
+                      <span style="color:#94a3b8; font-size:10px;">Kat: ${p.katSayisi || 0} • Bağımsız Bölüm: ${p.bagimsizBolumSayisi || 0}</span><br/>
+                      <button onclick="openBinaDetayModal(${p.id}, '${(p.binaAdi || adresMetni).replace(/'/g, "\\'")}')"
+                        style="margin-top:6px; width:100%; padding:6px; background:#2563eb; color:white; border:none; border-radius:6px; font-size:11px; font-weight:600; cursor:pointer;">
+                        📋 Bağımsız Bölümleri Gör / Ekle
+                      </button>
+                    </div>
+                  `;
+                  layer.bindPopup(popupIcerik);
+
+                  const kod = p.yapiDurumu || "ruhsatli";
+                  if (window.binaKategoriGruplari[kod]) {
+                    window.binaKategoriGruplari[kod].addLayer(layer);
+                  }
+                },
+              },
+            );
+
+            binaLejantiOlustur();
+            const binaLejant = document.getElementById("binaLejant");
+            if (binaLejant && document.getElementById("chkBinalar").checked) {
+              binaLejant.classList.add("visible");
+            }
+          })
+          .catch((err) => {
+            console.error("Bina/adres verisi hatası:", err);
+          });
+      }
+
       // OSM verisi sadece bir kez, checkbox ilk işaretlendiğinde çekilir (lazy load)
       var osmVerisiYuklendiMi = false;
 
-     function yukleOSMVerileri() {
+      function yukleOSMVerileri() {
         if (osmVerisiYuklendiMi) return;
         osmVerisiYuklendiMi = true;
 
@@ -2969,12 +3514,12 @@
                     : "Detay";
 
                   let popupIcerik = `
-                    <div style="font-size: 13px; padding: 2px;">
-                      <strong>${kat ? kat.emoji : "📍"} ${mekanIsmi}</strong><br/>
-                      <span style="color: #64748b; font-size: 11px;">Kategori: ${kat ? kat.ad : "Genel"}</span><br/>
-                      <span style="color: #94a3b8; font-size: 10px;">Tür: ${mekanTipi}</span>
-                    </div>
-                  `;
+                          <div style="font-size: 13px; padding: 2px;">
+                            <strong>${kat ? kat.emoji : "📍"} ${mekanIsmi}</strong><br/>
+                            <span style="color: #64748b; font-size: 11px;">Kategori: ${kat ? kat.ad : "Genel"}</span><br/>
+                            <span style="color: #94a3b8; font-size: 10px;">Tür: ${mekanTipi}</span>
+                          </div>
+                        `;
                   layer.bindPopup(popupIcerik);
 
                   // Veriyi ilgili kategori katman grubuna ekle
@@ -2985,7 +3530,7 @@
                     window.osmKategoriGruplari[kod].addLayer(layer);
                   }
                 },
-              }
+              },
             );
 
             // Lejantı oluştur, göster ve İstatistikleri anında güncelle!
@@ -3003,10 +3548,99 @@
       // İlk yükleme: sadece il sınırları. OSM, checkbox işaretlenince gelecek.
       yukleIller();
 
+      // 📍 CBS Noktalarını Veritabanından Çekip Haritaya Ekleme
+      var noktalarGroup = L.layerGroup().addTo(map);
+
+      var noktalarGroup = L.layerGroup();
+
+      function yukleNoktalar() {
+        noktalarGroup.clearLayers();
+
+        yetkiliFetch("/api/noktalar")
+          .then((res) => res.json())
+          .then((data) => {
+            if (!data || !data.features) return;
+
+            let gosterilecekNoktalar = data.features;
+
+            // Front-end katı yetki süzgeci
+            if (
+              window.aktifYetkiPoligonu &&
+              window.aktifKullanici &&
+              !window.aktifKullanici.tamYetki
+            ) {
+              gosterilecekNoktalar = data.features.filter((f) => {
+                try {
+                  let yetkiGeom = window.aktifYetkiPoligonu;
+                  if (
+                    yetkiGeom.type === "FeatureCollection" &&
+                    yetkiGeom.features.length > 0
+                  ) {
+                    yetkiGeom = yetkiGeom.features[0];
+                  }
+                  return turf.booleanPointInPolygon(f.geometry, yetkiGeom);
+                } catch (e) {
+                  return true;
+                }
+              });
+            }
+
+            L.geoJSON(
+              { type: "FeatureCollection", features: gosterilecekNoktalar },
+              {
+                pointToLayer: function (feature, latlng) {
+                  return L.marker(latlng);
+                },
+                onEachFeature: function (feature, layer) {
+                  const p = feature.properties;
+                  layer.on({
+                    click: function (e) {
+                      if (e.originalEvent) {
+                        L.DomEvent.stopPropagation(e.originalEvent);
+                        e.originalEvent._stopped = true;
+                      }
+                      info.update(p);
+                      sagPaneliGuncelle("Özel CBS Noktası", p);
+                    },
+                  });
+                  const popupIcerik = `
+                    <div style="font-size:12px; padding:2px;">
+                      <strong>📍 ${p.isim || "Nokta"}</strong><br/>
+                      <span style="color:#64748b;">Tür: ${p.tip || "Belirtilmedi"}</span>
+                    </div>
+                  `;
+                  layer.bindPopup(popupIcerik);
+                },
+              },
+            ).addTo(noktalarGroup);
+          })
+          .catch((err) => console.error("Noktalar çekilemedi:", err));
+      }
+
+      // Sayfa açıldığında veritabanındaki noktaları getir
+      yukleNoktalar();
+
       // ✏️ TEK VE BİRLEŞİK HARİTA TIKLAMA OLAYI (düzenleme modu + yetki kontrolü + popup)
       function onMapClick(e) {
-        if (!editMode) return;
         if (e.originalEvent && e.originalEvent._stopped) return;
+
+        // 🏠 Bina Ekleme Modu aktifse, normal nokta formu yerine
+        // adres/bina kayıt formunu aç.
+        if (binaEklemeModu) {
+          if (!kullaniciBolgeYetkisiVarMi(e.latlng.lat, e.latlng.lng)) {
+            const bolgeAdi = window.aktifKullanici
+              ? window.aktifKullanici.bolge
+              : "Yetkili olduğunuz bölge";
+            alert(
+              `⚠️ Yetki İhlali!\n"${bolgeAdi}" sınırları dışındaki bir konuma bina kaydı giremezsiniz.`,
+            );
+            return;
+          }
+          binaEklemeFormunuAc(e.latlng.lat, e.latlng.lng);
+          return;
+        }
+
+        if (!editMode) return;
 
         if (!kullaniciBolgeYetkisiVarMi(e.latlng.lat, e.latlng.lng)) {
           const bolgeAdi = window.aktifKullanici
@@ -3022,38 +3656,155 @@
         var lng = e.latlng.lng;
 
         var formContent = `
-          <div style="font-family: inherit; width: 220px; padding: 4px;">
-            <h6 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a; display: flex; align-items: center; gap: 6px;">
-              📍 Yeni Nokta Ekle
-            </h6>
-            <div style="display: flex; flex-direction: column; gap: 8px;">
-              <div>
-                <label style="font-size: 11px; color: #64748b; font-weight: 600; display: block; margin-bottom: 2px;">Nokta Adı</label>
-                <input type="text" id="noktaIsim" placeholder="Örn: Kadıköy Meydanı"
-                  style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
-              </div>
-              <div>
-                <label style="font-size: 11px; color: #64748b; font-weight: 600; display: block; margin-bottom: 2px;">Mekan Tipi</label>
-                <select id="noktaTip"
-                  style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; background-color: white; box-sizing: border-box;">
-                  <option value="Tarihi Mekan">🏛️ Tarihi Mekan</option>
-                  <option value="Hastane">🏥 Hastane</option>
-                  <option value="Park/Yeşil Alan">🌲 Park / Yeşil Alan</option>
-                  <option value="Restoran/Kafeterya">☕ Restoran / Kafe</option>
-                  <option value="Diğer">📍 Diğer</option>
-                </select>
-              </div>
-              <button onclick="kaydetNokta(${lat}, ${lng})"
-                style="margin-top: 4px; width: 100%; padding: 7px; background-color: #0E8577; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
-                💾 Veritabanına Kaydet
-              </button>
-            </div>
-          </div>
-        `;
+                <div style="font-family: inherit; width: 220px; padding: 4px;">
+                  <h6 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                    📍 Yeni Nokta Ekle
+                  </h6>
+                  <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div>
+                      <label style="font-size: 11px; color: #64748b; font-weight: 600; display: block; margin-bottom: 2px;">Nokta Adı</label>
+                      <input type="text" id="noktaIsim" placeholder="Örn: Kadıköy Meydanı"
+                        style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                    </div>
+                    <div>
+                      <label style="font-size: 11px; color: #64748b; font-weight: 600; display: block; margin-bottom: 2px;">Mekan Tipi</label>
+                      <select id="noktaTip"
+                        style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; background-color: white; box-sizing: border-box;">
+                        <option value="Tarihi Mekan">🏛️ Tarihi Mekan</option>
+                        <option value="Hastane">🏥 Hastane</option>
+                        <option value="Park/Yeşil Alan">🌲 Park / Yeşil Alan</option>
+                        <option value="Restoran/Kafeterya">☕ Restoran / Kafe</option>
+                        <option value="Diğer">📍 Diğer</option>
+                      </select>
+                    </div>
+                    <button onclick="kaydetNokta(${lat}, ${lng})"
+                      style="margin-top: 4px; width: 100%; padding: 7px; background-color: #0E8577; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                      💾 Veritabanına Kaydet
+                    </button>
+                  </div>
+                </div>
+              `;
 
         L.popup().setLatLng(e.latlng).setContent(formContent).openOn(map);
       }
       map.on("click", onMapClick);
+
+      // 🏠 Bina/Adres Ekleme Formu (harita üzerinde açılan popup)
+      function binaEklemeFormunuAc(lat, lng) {
+        const formContent = `
+                <div style="font-family: inherit; width: 250px; padding: 4px;">
+                  <h6 style="margin: 0 0 10px 0; font-size: 14px; color: #0f172a; display: flex; align-items: center; gap: 6px;">
+                    🏠 Yeni Bina / Adres Kaydı
+                  </h6>
+                  <div style="display: flex; flex-direction: column; gap: 6px;">
+                    <input type="text" id="binaIl" placeholder="İl (Örn: Ankara)"
+                      style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                    <input type="text" id="binaIlce" placeholder="İlçe (Örn: Yenimahalle)"
+                      style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                    <input type="text" id="binaMahalle" placeholder="Mahalle"
+                      style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                    <input type="text" id="binaSokak" placeholder="Sokak / Cadde"
+                      style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                    <div style="display: flex; gap: 6px;">
+                      <input type="text" id="binaDisKapiNo" placeholder="Dış Kapı No"
+                        style="width: 50%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                      <input type="text" id="binaAdi" placeholder="Bina Adı (opsiyonel)"
+                        style="width: 50%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                    </div>
+                    <div style="display: flex; gap: 6px;">
+                      <input type="number" id="binaKatSayisi" placeholder="Kat Sayısı" min="0"
+                        style="width: 50%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                      <input type="number" id="binaBagimsizBolumSayisi" placeholder="Bağ. Bölüm Sayısı" min="0"
+                        style="width: 50%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; box-sizing: border-box;" />
+                    </div>
+                    <select id="binaYapiDurumu"
+                      style="width: 100%; padding: 6px 8px; font-size: 12px; border: 1px solid #cbd5e1; border-radius: 6px; outline: none; background-color: white; box-sizing: border-box;">
+                      <option value="ruhsatli">✅ Ruhsatlı Yapı</option>
+                      <option value="ruhsatsiz">🚫 Ruhsatsız / Kaçak Yapı</option>
+                      <option value="insaat">🏗️ İnşaat Halinde</option>
+                      <option value="yikik">💥 Yıkık / Boş Arsa</option>
+                    </select>
+                    <button onclick="kaydetBina(${lat}, ${lng})"
+                      style="margin-top: 4px; width: 100%; padding: 7px; background-color: #2563eb; color: white; border: none; border-radius: 6px; font-size: 12px; font-weight: 600; cursor: pointer;">
+                      💾 Bina / Adres Kaydını Oluştur
+                    </button>
+                  </div>
+                </div>
+              `;
+        L.popup({ maxWidth: 280 })
+          .setLatLng([lat, lng])
+          .setContent(formContent)
+          .openOn(map);
+      }
+
+      window.kaydetBina = function (lat, lng) {
+        if (!kullaniciBolgeYetkisiVarMi(lat, lng)) {
+          const bolgeAdi = window.aktifKullanici
+            ? window.aktifKullanici.bolge
+            : "Yetkili olduğunuz bölge";
+          alert(
+            `⚠️ Yetki İhlali!\n"${bolgeAdi}" sınırları dışındaki bir konuma bina kaydı giremezsiniz.`,
+          );
+          return;
+        }
+
+        const al = (id) => {
+          const el = document.getElementById(id);
+          return el ? el.value.trim() : "";
+        };
+
+        const il = al("binaIl");
+        const ilce = al("binaIlce");
+        const mahalle = al("binaMahalle");
+        const sokak = al("binaSokak");
+        const disKapiNo = al("binaDisKapiNo");
+        const binaAdi = al("binaAdi");
+        const katSayisi = Number(al("binaKatSayisi")) || 0;
+        const bagimsizBolumSayisi = Number(al("binaBagimsizBolumSayisi")) || 0;
+        const yapiDurumu = document.getElementById("binaYapiDurumu")
+          ? document.getElementById("binaYapiDurumu").value
+          : "ruhsatli";
+
+        if (!il || !ilce || !mahalle) {
+          alert("Lütfen en azından İl, İlçe ve Mahalle bilgisini girin!");
+          return;
+        }
+
+        yetkiliFetch("/api/adresler", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            il,
+            ilce,
+            mahalle,
+            sokak,
+            disKapiNo,
+            binaAdi,
+            katSayisi,
+            bagimsizBolumSayisi,
+            yapiDurumu,
+            lat,
+            lng,
+          }),
+        })
+          .then(async (res) => {
+            const veri = await res.json();
+            if (!res.ok) throw new Error(veri.error || "Kayıt başarısız.");
+            return veri;
+          })
+          .then((response) => {
+            alert(response.message || "Bina/adres kaydı oluşturuldu!");
+            map.closePopup();
+            // Katman açıksa haritayı taze veriyle güncelle
+            if (document.getElementById("chkBinalar").checked) {
+              yukleBinaVerileri();
+            }
+          })
+          .catch((err) => {
+            console.error(err);
+            alert("⚠️ " + err.message);
+          });
+      };
 
       window.kaydetNokta = function (lat, lng) {
         if (!kullaniciBolgeYetkisiVarMi(lat, lng)) {
@@ -3092,6 +3843,19 @@
           .then((response) => {
             alert(response.message || "Nokta kaydedildi!");
             map.closePopup();
+
+            // 🧹 1. Geçici çizim katmanını temizle (Hayalet nokta kalmasın!)
+            if (window.sonCizilenLayer) {
+              cizimGroup.removeLayer(window.sonCizilenLayer);
+              window.sonCizilenLayer = null;
+            }
+
+            // 📍 2. Katman checkbox'ını aktif yap ve taze veriyi çek
+            const chkNoktalar = document.getElementById("chkNoktalar");
+            if (chkNoktalar) chkNoktalar.checked = true;
+            map.addLayer(noktalarGroup);
+
+            yukleNoktalar();
           })
           .catch((err) => {
             console.error(err);
@@ -3122,11 +3886,11 @@
             .addTo(map);
 
           const yeniKatmanHTML = `
-            <label id="label_${yeniKatmanId}">
-                <input type="checkbox" id="${yeniKatmanId}" checked onchange="toggleDinamikKatman('${yeniKatmanId}')">
-                🖼️ Harici WMS Katmanı
-            </label>
-          `;
+                  <label id="label_${yeniKatmanId}">
+                      <input type="checkbox" id="${yeniKatmanId}" checked onchange="toggleDinamikKatman('${yeniKatmanId}')">
+                      🖼️ Harici WMS Katmanı
+                  </label>
+                `;
           katmanListesiDiv.insertAdjacentHTML("beforeend", yeniKatmanHTML);
           window[yeniKatmanId] = dinamikWMS;
         } else if (servisTipi === "WFS") {
@@ -3158,11 +3922,11 @@
               map.setView([39.0, 35.0], 6);
 
               const yeniKatmanHTML = `
-                <label id="label_${yeniKatmanId}">
-                    <input type="checkbox" id="${yeniKatmanId}" checked onchange="toggleDinamikKatman('${yeniKatmanId}')">
-                    📐 Türkiye WFS Katmanı (Vektör)
-                </label>
-              `;
+                      <label id="label_${yeniKatmanId}">
+                          <input type="checkbox" id="${yeniKatmanId}" checked onchange="toggleDinamikKatman('${yeniKatmanId}')">
+                          📐 Türkiye WFS Katmanı (Vektör)
+                      </label>
+                    `;
               katmanListesiDiv.insertAdjacentHTML("beforeend", yeniKatmanHTML);
               window[yeniKatmanId] = dinamikWFS;
             });
@@ -3195,21 +3959,68 @@
           }
         } else if (katmanAdi === "osm") {
           const chk = document.getElementById("chkOSM");
-          const lejant = document.getElementById("osmLejant");
+          const osmBaslik = document.getElementById("osmLejantBaslik");
           if (chk.checked) {
             yukleOSMVerileri(); // ilk kez işaretlendiğinde veriyi çeker (yetkiye göre filtreli)
             Object.values(window.osmKategoriGruplari).forEach((grup) =>
               map.addLayer(grup),
             );
-            if (lejant) lejant.classList.add("visible");
+            if (osmBaslik) osmBaslik.style.display = "block";
           } else {
             Object.values(window.osmKategoriGruplari).forEach((grup) =>
               map.removeLayer(grup),
             );
-            if (lejant) lejant.classList.remove("visible");
+            if (osmBaslik) osmBaslik.style.display = "none";
+          }
+          katmanLejantiniGuncelle();
+        } else if (katmanAdi === "binalar") {
+          const chk = document.getElementById("chkBinalar");
+          const binaBaslik = document.getElementById("binaLejantBaslik");
+          if (chk.checked) {
+            yukleBinaVerileri(); // ilk kez işaretlendiğinde veriyi çeker (yetkiye göre filtreli)
+            Object.values(window.binaKategoriGruplari).forEach((grup) =>
+              map.addLayer(grup),
+            );
+            if (binaBaslik) binaBaslik.style.display = "block";
+          } else {
+            Object.values(window.binaKategoriGruplari).forEach((grup) =>
+              map.removeLayer(grup),
+            );
+            if (binaBaslik) binaBaslik.style.display = "none";
+          }
+          katmanLejantiniGuncelle();
+        } else if (katmanAdi === "noktalar") {
+          const chk = document.getElementById("chkNoktalar");
+          if (chk.checked) {
+            yukleNoktalar();
+            map.addLayer(noktalarGroup);
+          } else {
+            map.removeLayer(noktalarGroup);
           }
         }
       };
+
+      function katmanLejantiniGuncelle() {
+        const osmLejant = document.getElementById("osmLejant");
+        const binaLejant = document.getElementById("binaLejant");
+
+        const osmAcik = document.getElementById("chkOSM")?.checked;
+        const binaAcik = document.getElementById("chkBinalar")?.checked;
+
+        // OSM Katmanı açıksa OSM kartını göster
+        if (osmAcik) {
+          if (osmLejant) osmLejant.classList.add("visible");
+        } else {
+          if (osmLejant) osmLejant.classList.remove("visible");
+        }
+
+        // Bina Katmanı açıksa Bina kartını göster
+        if (binaAcik) {
+          if (binaLejant) binaLejant.classList.add("visible");
+        } else {
+          if (binaLejant) binaLejant.classList.remove("visible");
+        }
+      }
 
       const metniTemizle = (str) => {
         if (!str) return "";
@@ -3669,6 +4480,12 @@
         document.getElementById("lblUserRegion").innerText = user.bolge;
         btnUserProfile.style.display = "inline-flex";
 
+        // 🛡️ Yönetici paneli butonu sadece tam_yetki=true kullanıcılarda görünür
+        const btnAdminGecmis = document.getElementById("btnAdminGecmis");
+        if (btnAdminGecmis) {
+          btnAdminGecmis.style.display = user.tamYetki ? "flex" : "none";
+        }
+
         // 🗺️ İlçe düzeyindeki hesaplar için "İl Sınırları" katmanı anlamsız
         // olduğundan checkbox'ı devre dışı bırakıp bilgi notunu gösteriyoruz.
         const chkIller = document.getElementById("chkIller");
@@ -3680,7 +4497,8 @@
             chkIller.checked = false;
             toggleKatman("iller"); // haritada açık kalmışsa kapat
           }
-          if (illerNot) illerNot.style.display = ilceDuzeyiMi ? "block" : "none";
+          if (illerNot)
+            illerNot.style.display = ilceDuzeyiMi ? "block" : "none";
         }
 
         duzenlemeRozetiKonumunuGuncelle();
@@ -3958,6 +4776,14 @@
 
       // 🚪 ÇIKIŞ YAPMA FONKSİYONUNA EKLENECEK KISIM:
       window.kullaniciCikisYap = function () {
+        // 🧹 Arama döngüsü hafızasını tamamen temizle!
+        window.sonAramaMetni = "";
+        window.aramaSonuclari = [];
+        window.aktifAramaIndeksi = 0;
+        if (window.geciciAramaMarker) {
+          map.removeLayer(window.geciciAramaMarker);
+          window.geciciAramaMarker = null;
+        }
         // 1. Aktif kullanıcıyı ve yetki poligonunu temizle
         window.aktifKullanici = null;
         window.aktifYetkiPoligonu = null;
@@ -3999,6 +4825,12 @@
         sessionStorage.removeItem("cbs_user");
         sessionStorage.removeItem("cbs_token");
         window.aktifKullanici = null;
+
+        // 🛡️ Yönetici paneli butonunu ve modalını gizle
+        const btnAdminGecmisCikis = document.getElementById("btnAdminGecmis");
+        if (btnAdminGecmisCikis) btnAdminGecmisCikis.style.display = "none";
+        const adminModalCikis = document.getElementById("adminGecmisModal");
+        if (adminModalCikis) adminModalCikis.style.display = "none";
 
         // 🧹 Arama Kutusunu Kapat ve Metni Sil
         const aramaInput = document.getElementById("adresAramaInput");
@@ -4227,11 +5059,11 @@
 
           if (katmanListesiDiv) {
             const yeniKatmanHTML = `
-        <label id="label_${yeniKatmanId}" style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
-            <input type="checkbox" id="${yeniKatmanId}" checked onchange="toggleDinamikKatman('${yeniKatmanId}')"> 
-            🖼️ WMS Katmanı (${yeniKatmanId.substring(7, 12)})
-        </label>
-      `;
+              <label id="label_${yeniKatmanId}" style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  <input type="checkbox" id="${yeniKatmanId}" checked onchange="toggleDinamikKatman('${yeniKatmanId}')">
+                  🖼️ WMS Katmanı (${yeniKatmanId.substring(7, 12)})
+              </label>
+            `;
             katmanListesiDiv.insertAdjacentHTML("beforeend", yeniKatmanHTML);
           }
           window[yeniKatmanId] = dinamikWMS;
@@ -4271,11 +5103,11 @@
 
               if (katmanListesiDiv) {
                 const yeniKatmanHTML = `
-            <label id="label_${yeniKatmanId}" style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
-                <input type="checkbox" id="${yeniKatmanId}" checked onchange="toggleDinamikKatman('${yeniKatmanId}')"> 
-                📐 WFS Vektör Katmanı
-            </label>
-          `;
+                  <label id="label_${yeniKatmanId}" style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                      <input type="checkbox" id="${yeniKatmanId}" checked onchange="toggleDinamikKatman('${yeniKatmanId}')">
+                      📐 WFS Vektör Katmanı
+                  </label>
+                `;
                 katmanListesiDiv.insertAdjacentHTML(
                   "beforeend",
                   yeniKatmanHTML,
@@ -4311,6 +5143,7 @@
         WFS_SORGU: { ikon: "📐", etiket: "WFS Sorgusu" },
         RAPOR_ALMA: { ikon: "🖨️", etiket: "Rapor Alındı" },
         ADRES_ARAMA: { ikon: "🔍", etiket: "Adres Arandı" },
+        GECMIS_SILME: { ikon: "🗑️", etiket: "Yönetici Kayıt Sildi" },
       };
 
       window.openGecmisModal = function () {
@@ -4355,15 +5188,15 @@
                   },
                 );
                 return `
-                  <div style="display: flex; gap: 10px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfcfd;">
-                    <div style="font-size: 18px; line-height: 1;">${gorunum.ikon}</div>
-                    <div style="flex: 1; min-width: 0;">
-                      <div style="font-size: 12.5px; font-weight: 600; color: #1e293b;">${gorunum.etiket}</div>
-                      ${k.aciklama ? `<div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">${k.aciklama}</div>` : ""}
-                      <div style="font-size: 10.5px; color: #94a3b8; margin-top: 3px;">${tarih}</div>
-                    </div>
-                  </div>
-                `;
+                        <div style="display: flex; gap: 10px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfcfd;">
+                          <div style="font-size: 18px; line-height: 1;">${gorunum.ikon}</div>
+                          <div style="flex: 1; min-width: 0;">
+                            <div style="font-size: 12.5px; font-weight: 600; color: #1e293b;">${gorunum.etiket}</div>
+                            ${k.aciklama ? `<div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">${k.aciklama}</div>` : ""}
+                            <div style="font-size: 10.5px; color: #94a3b8; margin-top: 3px;">${tarih}</div>
+                          </div>
+                        </div>
+                      `;
               })
               .join("");
           })
@@ -4376,17 +5209,353 @@
         document.getElementById("gecmisModal").style.display = "none";
       };
 
-      // --- 🔍 YETKİ KONTROLLÜ ADRES ARAMA ---
+      // --- 🛡️ YÖNETİCİ PANELİ: TÜM KULLANICILARIN GEÇMİŞİ ---
+      window.openAdminGecmisModal = function () {
+        if (!window.aktifKullanici) {
+          alert("Lütfen önce giriş yapın!");
+          return;
+        }
+        if (!window.aktifKullanici.tamYetki) {
+          alert("Bu panele erişmek için yönetici yetkiniz olmalı.");
+          return;
+        }
+        document.getElementById("profileDropdown").style.display = "none";
+        document.getElementById("adminGecmisModal").style.display = "flex";
+        adminGecmisYukle();
+      };
+
+      window.closeAdminGecmisModal = function () {
+        document.getElementById("adminGecmisModal").style.display = "none";
+      };
+
+      function adminGecmisYukle() {
+        const kutu = document.getElementById("adminGecmisListesi");
+        kutu.innerHTML =
+          '<div style="font-size: 12px; color: #94a3b8; text-align: center; padding: 20px;">Yükleniyor...</div>';
+
+        yetkiliFetch("/api/admin/gecmis")
+          .then(async (res) => {
+            const veri = await res.json();
+            if (!res.ok) throw new Error(veri.error || "Geçmiş alınamadı.");
+            return veri;
+          })
+          .then((kayitlar) => {
+            if (!kayitlar || kayitlar.length === 0) {
+              kutu.innerHTML =
+                '<div style="font-size: 12px; color: #94a3b8; text-align: center; padding: 20px;">Henüz bir işlem kaydı yok.</div>';
+              return;
+            }
+
+            kutu.innerHTML = kayitlar
+              .map((k) => {
+                const gorunum = ISLEM_TIPI_GORUNUM[k.islem_tipi] || {
+                  ikon: "•",
+                  etiket: k.islem_tipi,
+                };
+                const tarih = new Date(k.olusturma_tarihi).toLocaleString(
+                  "tr-TR",
+                  {
+                    day: "2-digit",
+                    month: "2-digit",
+                    year: "numeric",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  },
+                );
+                const kullaniciEtiketi = k.ad_soyad
+                  ? `${k.ad_soyad} (${k.kullanici_adi || "?"})`
+                  : "Bilinmeyen kullanıcı";
+                return `
+                        <div data-kayit-id="${k.id}" style="display: flex; gap: 10px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfcfd; align-items: flex-start;">
+                          <div style="font-size: 18px; line-height: 1;">${gorunum.ikon}</div>
+                          <div style="flex: 1; min-width: 0;">
+                            <div style="font-size: 12.5px; font-weight: 600; color: #1e293b;">${gorunum.etiket}</div>
+                            <div style="font-size: 11px; color: #0e8577; font-weight: 600; margin-top: 2px;">👤 ${kullaniciEtiketi}</div>
+                            ${k.aciklama ? `<div style="font-size: 11.5px; color: #64748b; margin-top: 2px;">${k.aciklama}</div>` : ""}
+                            <div style="font-size: 10.5px; color: #94a3b8; margin-top: 3px;">${tarih}</div>
+                          </div>
+                          <button
+                            onclick="adminGecmisSil(${k.id})"
+                            title="Bu kaydı sil"
+                            style="background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; border-radius: 6px; padding: 4px 8px; font-size: 12px; cursor: pointer; flex-shrink: 0;"
+                          >
+                            🗑️
+                          </button>
+                        </div>
+                      `;
+              })
+              .join("");
+          })
+          .catch((err) => {
+            kutu.innerHTML = `<div style="font-size: 12px; color: #dc2626; text-align: center; padding: 20px;">⚠️ ${err.message}</div>`;
+          });
+      }
+
+      window.adminGecmisSil = function (kayitId) {
+        if (
+          !confirm(
+            "Bu kaydı ve ilişkili harita verisini silmek istediğinize emin misiniz?",
+          )
+        ) {
+          return;
+        }
+        yetkiliFetch(`/api/admin/gecmis/${kayitId}`, { method: "DELETE" })
+          .then(async (res) => {
+            const veri = await res.json();
+            if (!res.ok) throw new Error(veri.error || "Kayıt silinemedi.");
+
+            // 1. Yönetici panelindeki ilgili satırı kaldır
+            const satir = document.querySelector(
+              `#adminGecmisListesi [data-kayit-id="${kayitId}"]`,
+            );
+            if (satir) satir.remove();
+
+            // 🚀 2. HARİTADAKİ KATMANLARI ANINDA TAZELİYORUZ (Ekranda anında yok olur!)
+            if (typeof yukleNoktalar === "function") yukleNoktalar();
+            if (typeof yukleBinaVerileri === "function") yukleBinaVerileri();
+
+            alert("Kayıt ve haritadaki veri başarıyla silindi!");
+          })
+          .catch((err) => {
+            alert("⚠️ " + err.message);
+          });
+      };
+
+      // --- 🏠 BİNA DETAYI / BAĞIMSIZ BÖLÜM MODALI ---
+      window.aktifBinaId = null;
+
+      window.openBinaDetayModal = function (adresId, baslikMetni) {
+        window.aktifBinaId = adresId;
+        document.getElementById("binaDetayAdresBaslik").innerText =
+          baslikMetni || `Bina #${adresId}`;
+        document.getElementById("binaDetayModal").style.display = "flex";
+        bagimsizBolumleriYukle(adresId);
+      };
+
+      window.closeBinaDetayModal = function () {
+        document.getElementById("binaDetayModal").style.display = "none";
+        window.aktifBinaId = null;
+      };
+
+      function bagimsizBolumleriYukle(adresId) {
+        const kutu = document.getElementById("bagimsizBolumListesi");
+        kutu.innerHTML =
+          '<div style="font-size: 12px; color: #94a3b8; text-align: center; padding: 12px;">Yükleniyor...</div>';
+
+        yetkiliFetch(`/api/adresler/${adresId}/bagimsiz-bolumler`)
+          .then(async (res) => {
+            const veri = await res.json();
+            if (!res.ok) throw new Error(veri.error || "Liste alınamadı.");
+            return veri;
+          })
+          .then((kayitlar) => {
+            if (!kayitlar || kayitlar.length === 0) {
+              kutu.innerHTML =
+                '<div style="font-size: 12px; color: #94a3b8; text-align: center; padding: 12px;">Bu binaya henüz bağımsız bölüm kaydı girilmemiş.</div>';
+              return;
+            }
+            const turEmoji = { mesken: "🏠", isyeri: "🏢", bos: "⬜" };
+            kutu.innerHTML = kayitlar
+              .map(
+                (k) => `
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:6px 10px; border:1px solid #e2e8f0; border-radius:6px; background:#fbfcfd; font-size:12px;">
+                          <span><strong>${turEmoji[k.kullanim_turu] || "📍"} No: ${k.kapi_no}</strong></span>
+                          <span style="color:#64748b;">${k.kullanim_turu}</span>
+                        </div>
+                      `,
+              )
+              .join("");
+          })
+          .catch((err) => {
+            kutu.innerHTML = `<div style="font-size: 12px; color: #dc2626; text-align: center; padding: 12px;">⚠️ ${err.message}</div>`;
+          });
+      }
+
+      window.bagimsizBolumEkle = function () {
+        if (!window.aktifBinaId) return;
+        const kapiNo = document.getElementById("yeniKapiNo").value.trim();
+        const kullanimTuru = document.getElementById("yeniKullanimTuru").value;
+
+        if (!kapiNo) {
+          alert("Lütfen bir kapı numarası girin!");
+          return;
+        }
+
+        yetkiliFetch(`/api/adresler/${window.aktifBinaId}/bagimsiz-bolumler`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ kapiNo, kullanimTuru }),
+        })
+          .then(async (res) => {
+            const veri = await res.json();
+            if (!res.ok) throw new Error(veri.error || "Kayıt başarısız.");
+            return veri;
+          })
+          .then(() => {
+            document.getElementById("yeniKapiNo").value = "";
+            bagimsizBolumleriYukle(window.aktifBinaId);
+            // Ana katmandaki bağımsız bölüm sayısını da güncellemek için yeniden yükle
+            if (document.getElementById("chkBinalar").checked) {
+              yukleBinaVerileri();
+            }
+          })
+          .catch((err) => {
+            alert("⚠️ " + err.message);
+          });
+      };
+
+      // --- 🏠 ADRES VERİTABANINDA ARAMA (Mahalle / Sokak) ---
+      window.adresVeritabaniniAra = function () {
+        const mahalle = document.getElementById("aramaMahalle").value.trim();
+        const sokak = document.getElementById("aramaSokak").value.trim();
+
+        if (!mahalle && !sokak) {
+          alert("Lütfen en az mahalle veya sokak bilgisi girin!");
+          return;
+        }
+
+        // Katman kapalıysa açalım ki sonuç görünsün
+        const chkBinalar = document.getElementById("chkBinalar");
+        if (!chkBinalar.checked) {
+          chkBinalar.checked = true;
+          Object.values(window.binaKategoriGruplari).forEach((grup) =>
+            map.addLayer(grup),
+          );
+          document.getElementById("binaLejantBaslik").style.display = "block";
+          katmanLejantiniGuncelle();
+        }
+
+        const params = new URLSearchParams();
+        if (mahalle) params.set("mahalle", mahalle);
+        if (sokak) params.set("sokak", sokak);
+
+        yukleBinaVerileri(`?${params.toString()}`);
+        aktiviteLogKaydet(
+          "ADRES_ARAMA_DB",
+          `Adres veritabanında arama: mahalle="${mahalle || "-"}", sokak="${sokak || "-"}"`,
+        );
+      };
+
+      window.adresAramaSifirla = function () {
+        document.getElementById("aramaMahalle").value = "";
+        document.getElementById("aramaSokak").value = "";
+        if (document.getElementById("chkBinalar").checked) {
+          yukleBinaVerileri();
+        }
+      };
+
+      // --- 🏠 ADRES ENVANTERİ RAPORU ---
+      window.toggleAdresRaporPanel = function () {
+        const panel = document.getElementById("adresRaporPanel");
+        if (!panel) return;
+        // Aynı anda tek özet panel açık kalsın (istatistik panelini kapat)
+        const istatistik = document.getElementById("istatistikPanel");
+        if (istatistik) istatistik.style.display = "none";
+
+        if (panel.style.display === "none" || panel.style.display === "") {
+          adresRaporunuGuncelle();
+          panel.style.display = "block";
+        } else {
+          panel.style.display = "none";
+        }
+      };
+
+      function adresRaporunuGuncelle() {
+        let toplam = 0;
+        let ruhsatli = 0;
+        let ruhsatsiz = 0;
+        let insaat = 0;
+        let yikik = 0;
+        let bagimsizBolumToplam = 0;
+
+        if (window.binaKategoriGruplari) {
+          Object.entries(window.binaKategoriGruplari).forEach(([kod, grup]) => {
+            const katmanlar = grup.getLayers();
+            toplam += katmanlar.length;
+            katmanlar.forEach((layer) => {
+              const p = layer.feature ? layer.feature.properties : null;
+              if (p) bagimsizBolumToplam += Number(p.bagimsizBolumSayisi) || 0;
+            });
+            if (kod === "ruhsatli") ruhsatli += katmanlar.length;
+            else if (kod === "ruhsatsiz") ruhsatsiz += katmanlar.length;
+            else if (kod === "insaat") insaat += katmanlar.length;
+            else if (kod === "yikik") yikik += katmanlar.length;
+          });
+        }
+
+        const set = (id, deger) => {
+          const el = document.getElementById(id);
+          if (el) el.innerText = deger;
+        };
+        set("adresStatToplam", toplam);
+        set("adresStatRuhsatli", ruhsatli);
+        set("adresStatRuhsatsiz", ruhsatsiz);
+        set("adresStatInsaat", insaat);
+        set("adresStatYikik", yikik);
+        set("adresStatBagimsizBolum", bagimsizBolumToplam);
+      }
+
+      /*/ 🔍 Arama Geçmişi ve Döngü Hafızası (Global Değişkenler)
+            window.sonAramaMetni = "";
+            window.aramaSonuclari = [];
+            window.aktifAramaIndeksi = 0;
+            window.geciciAramaMarker = null;*/
+
       function adresAra() {
-        const aramaMetni = document
-          .getElementById("adresAramaInput")
-          .value.trim();
+        const input = document.getElementById("adresAramaInput");
+        const aramaMetni = input ? input.value.trim() : "";
+
         if (!aramaMetni) {
           alert("Lütfen aranacak bir adres veya bölge adı yazın!");
           return;
         }
 
-        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(aramaMetni)}`;
+        // 🧹 1. Önceki geçici arama marker'ı varsa kaldır
+        if (window.geciciAramaMarker) {
+          map.removeLayer(window.geciciAramaMarker);
+          window.geciciAramaMarker = null;
+        }
+
+        const mevcutKullanici = window.aktifKullanici
+          ? window.aktifKullanici.kullaniciAdi
+          : "";
+
+        // 🔄 2. AYNI kullanıcı AYNI kelimeyi tekrar aratıyorsa eldeki YETKİLİ sonuçlar arasında dön
+        if (
+          window.sonAramaMetni === aramaMetni &&
+          window.sonAramaKullanicisi === mevcutKullanici &&
+          window.aramaSonuclari &&
+          window.aramaSonuclari.length > 0
+        ) {
+          window.aktifAramaIndeksi =
+            (window.aktifAramaIndeksi + 1) % window.aramaSonuclari.length;
+          konumaOdaklanVeGoster(
+            window.aramaSonuclari[window.aktifAramaIndeksi],
+            window.aktifAramaIndeksi + 1,
+            window.aramaSonuclari.length,
+          );
+          return;
+        }
+
+        // 🌐 3. YENİ ARAMA: Yetki bölgesini bağlam olarak ekle
+        let aramaSorgusu = aramaMetni;
+        if (
+          window.aktifKullanici &&
+          window.aktifKullanici.bolge &&
+          !window.aktifKullanici.tamYetki
+        ) {
+          const bolge = window.aktifKullanici.bolge;
+          if (bolge === "Yenimahalle İlçesi") {
+            aramaSorgusu += `, Yenimahalle, Ankara`;
+          } else if (bolge === "Ankara İli") {
+            aramaSorgusu += `, Ankara`;
+          } else if (bolge === "İç Anadolu Bölgesi") {
+            aramaSorgusu += `, İç Anadolu`;
+          }
+        }
+        aramaSorgusu += `, Türkiye`;
+
+        const url = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(aramaSorgusu)}`;
 
         fetch(url)
           .then((res) => res.json())
@@ -4396,38 +5565,32 @@
               return;
             }
 
-            const enIlkSonuc = data[0];
-            const lat = parseFloat(enIlkSonuc.lat);
-            const lon = parseFloat(enIlkSonuc.lon);
+            // 🛡️ KRİTİK DÜZELTME: Sadece ve sadece kullanıcının YETKİ ALANINDAKİ sonuçları hafızaya al!
+            const yetkiliSonuclar = data.filter((item) =>
+              kullaniciBolgeYetkisiVarMi(
+                parseFloat(item.lat),
+                parseFloat(item.lon),
+              ),
+            );
 
-            // 🛡️ SPATIAL BOUNDS YETKİ DENETİMİ
-            if (!kullaniciBolgeYetkisiVarMi(lat, lon)) {
-              const bolgeAdi = window.aktifKullanici
-                ? window.aktifKullanici.bolge
-                : "Yetkili olduğunuz bölge";
+            if (yetkiliSonuclar.length === 0) {
               alert(
-                `⚠️ YETKİ İHLALİ!\n\nAradığınız konum (${enIlkSonuc.display_name.split(",")[0]}) "${bolgeAdi}" sınırları dışındadır.\nYetki alanınız dışındaki bölgelere odaklanamazsınız!`,
+                `⚠️ Aradığınız "${aramaMetni}" konumu yetki bölgeniz (${window.aktifKullanici.bolge}) sınırları içerisinde bulunamadı!`,
               );
-              return; // Yetki yoksa haritayı oynatma!
+              return;
             }
 
-            // Yetki varsa noktaya uç ve marker koy
-            map.flyTo([lat, lon], 14, { duration: 1.5 });
+            // Hafızayı süzülmüş TEMİZ liste ile güncelle
+            window.sonAramaMetni = aramaMetni;
+            window.sonAramaKullanicisi = mevcutKullanici;
+            window.aramaSonuclari = yetkiliSonuclar;
+            window.aktifAramaIndeksi = 0;
 
-            const aramaMarker = L.marker([lat, lon])
-              .addTo(map)
-              .bindPopup(
-                `<b>📍 Bulunan Konum:</b><br/>${enIlkSonuc.display_name}`,
-              )
-              .openPopup();
-
-            cizimGroup.addLayer(aramaMarker);
-
-            aktiviteLogKaydet(
-              "ADRES_ARAMA",
-              `"${enIlkSonuc.display_name.split(",")[0]}" arandı ve haritada gösterildi.`,
-              lat,
-              lon,
+            // İlk temiz sonuca odaklan
+            konumaOdaklanVeGoster(
+              yetkiliSonuclar[0],
+              1,
+              yetkiliSonuclar.length,
             );
           })
           .catch((err) => {
@@ -4435,6 +5598,56 @@
             alert("Adres arama servisine ulaşılırken bir hata oluştu.");
           });
       }
+
+      // 🎯 Bulunan Konuma Odaklanan ve Geçici Marker Koyan Yardımcı Fonksiyon
+      function konumaOdaklanVeGoster(sonuc, sira, toplam) {
+        const lat = parseFloat(sonuc.lat);
+        const lon = parseFloat(sonuc.lon);
+
+        // 🛡️ SPATIAL BOUNDS YETKİ DENETİMİ
+        if (!kullaniciBolgeYetkisiVarMi(lat, lon)) {
+          const bolgeAdi = window.aktifKullanici
+            ? window.aktifKullanici.bolge
+            : "Yetkili olduğunuz bölge";
+          alert(
+            `⚠️ YETKİ İHLALİ!\n\nAradığınız konum (${sonuc.display_name.split(",")[0]}) "${bolgeAdi}" sınırları dışındadır.\nYetki alanınız dışındaki bölgelere odaklanamazsınız!`,
+          );
+          return;
+        }
+
+        // Haritayı noktaya uçur
+        map.flyTo([lat, lon], 14, { duration: 1.5 });
+
+        // 📍 GEÇİCİ MARKER (Çizim Grubuna eklenmez, haritada kalıcı olmaz!)
+        window.geciciAramaMarker = L.marker([lat, lon])
+          .addTo(map)
+          .bindPopup(
+            `<div style="font-size:12px; padding:2px;">
+              <strong>📍 Bulunan Konum (${sira}/${toplam}):</strong><br/>
+              <span>${sonuc.display_name}</span><br/>
+              <small style="color:#0e8577; font-weight:600;">Sonraki sonuç için 'Ara' butonuna tekrar basın 🔄</small>
+            </div>`,
+          )
+          .openPopup();
+
+        aktiviteLogKaydet(
+          "ADRES_ARAMA",
+          `"${sonuc.display_name.split(",")[0]}" arandı (${sira}/${toplam}).`,
+          lat,
+          lon,
+        );
+      }
+
+      // 🧹 Arama Kutusunu Kapatan Fonksiyona Geçici Marker Temizliği Ekliyoruz
+      const eskiAramaKutusunuKapat = window.aramaKutusunuKapat;
+      window.aramaKutusunuKapat = function () {
+        if (window.geciciAramaMarker) {
+          map.removeLayer(window.geciciAramaMarker);
+          window.geciciAramaMarker = null;
+        }
+        if (typeof eskiAramaKutusunuKapat === "function")
+          eskiAramaKutusunuKapat();
+      };
       // 🖨️ Rapor Kutusunu Aç/Kapat (Toggle)
       function toggleRaporKutusu() {
         const wrapper = document.getElementById("raporInputWrapper");
@@ -4588,6 +5801,8 @@
       function toggleIstatistikPanel() {
         const panel = document.getElementById("istatistikPanel");
         if (!panel) return;
+        const adresRapor = document.getElementById("adresRaporPanel");
+        if (adresRapor) adresRapor.style.display = "none";
 
         if (panel.style.display === "none" || panel.style.display === "") {
           istatistikleriGuncelle();
