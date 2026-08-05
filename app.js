@@ -78,6 +78,31 @@ async function islemLogKaydet(kullaniciId, islemTipi, aciklama, lat = null, lng 
     }
 }
 
+// ============================================================
+// 📜 ADRES/BİNA BAZLI DEĞİŞİKLİK GEÇMİŞİ (VERSİYONLAMA) YARDIMCISI
+// Genel "islem_gecmisi"nden farklı olarak, burada eski/yeni değerleri
+// JSONB olarak saklıyoruz ki bir binanın zaman içindeki tüm alan
+// değişikliklerini (örn. yapı durumu insaat -> ruhsatli) gösterebilelim.
+// ============================================================
+async function adresGecmisiKaydet(adresId, kullaniciId, degisiklikTipi, eskiDeger, yeniDeger, aciklama = null) {
+    try {
+        await pool.query(
+            `INSERT INTO adres_gecmisi (adres_id, kullanici_id, degisiklik_tipi, eski_deger, yeni_deger, aciklama)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [
+                adresId,
+                kullaniciId,
+                degisiklikTipi,
+                eskiDeger ? JSON.stringify(eskiDeger) : null,
+                yeniDeger ? JSON.stringify(yeniDeger) : null,
+                aciklama,
+            ],
+        );
+    } catch (err) {
+        console.error('Adres geçmişi kaydedilemedi:', err.message);
+    }
+}
+
 // 1. ANA SAYFA ROTASI
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
@@ -165,6 +190,47 @@ app.get('/api/gecmis', girisGerekli, async (req, res) => {
     }
 });
 
+// 🔍 AKILLI TÜM KATMANLARDA ARAMA API'Sİ
+app.get('/api/arama', girisGerekli, async (req, res) => {
+    const { q } = req.query;
+    if (!q || q.trim().length < 2) {
+        return res.json({ noktalar: [], binalar: [] });
+    }
+
+    const aranan = `%${q.trim().toLowerCase()}%`;
+
+    try {
+        // 1. CBS Noktalarında Ara
+        const noktaRes = await pool.query(
+            `SELECT id, isim, tip, ST_X(geom) as lng, ST_Y(geom) as lat
+             FROM cbs_noktalar
+             WHERE (silindi_mi IS FALSE OR silindi_mi IS NULL)
+               AND (lower(isim) LIKE $1 OR lower(tip) LIKE $1)
+             LIMIT 10`,
+            [aranan]
+        );
+
+        // 2. Bina / Adres Kayıtlarında Ara
+        const binaRes = await pool.query(
+            `SELECT id, il, ilce, mahalle, sokak, dis_kapi_no, bina_adi, yapi_durumu, ST_X(geom) as lng, ST_Y(geom) as lat
+             FROM adresler
+             WHERE (silindi_mi IS FALSE OR silindi_mi IS NULL)
+               AND durum = 'onaylandi'
+               AND (lower(mahalle) LIKE $1 OR lower(sokak) LIKE $1 OR lower(bina_adi) LIKE $1)
+             LIMIT 10`,
+            [aranan]
+        );
+
+        res.json({
+            noktalar: noktaRes.rows,
+            binalar: binaRes.rows
+        });
+    } catch (err) {
+        console.error("Arama hatası:", err);
+        res.status(500).json({ error: "Arama yapılırken hata oluştu." });
+    }
+});
+
 // ============================================================
 // 🛡️ ADMIN: TÜM KULLANICILARIN İŞLEM GEÇMİŞİ
 // Sadece tam_yetki=true olan (admin) kullanıcılar erişebilir.
@@ -226,16 +292,24 @@ app.delete('/api/admin/gecmis/:id', girisGerekli, adminGerekli, async (req, res)
         }
         // 3. Eğer bir Adres/Bina Ekleme eylemiyse adresler tablosunda soft delete yap
         else if (log.islem_tipi === 'ADRES_EKLEME' && log.lat && log.lng) {
-            await pool.query(
-                `UPDATE adresler 
-                 SET silindi_mi = TRUE 
-                 WHERE id = (
-                     SELECT id FROM adresler 
-                     WHERE ST_Equals(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)) 
-                     ORDER BY id DESC LIMIT 1
-                 )`,
-                [log.lng, log.lat]
+            const eslesen = await pool.query(
+                `SELECT id FROM adresler
+                 WHERE ST_Equals(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326))
+                 ORDER BY id DESC LIMIT 1`,
+                [log.lng, log.lat],
             );
+            if (eslesen.rows.length > 0) {
+                const adresId = eslesen.rows[0].id;
+                await pool.query(`UPDATE adresler SET silindi_mi = TRUE WHERE id = $1`, [adresId]);
+                await adresGecmisiKaydet(
+                    adresId,
+                    req.kullanici.id,
+                    'SILINDI',
+                    null,
+                    null,
+                    `${req.kullanici.ad_soyad} tarafından silindi (geçmiş kaydı üzerinden).`,
+                );
+            }
         }
 
         // 4. İşlem geçmişi kaydını temizle
@@ -699,6 +773,7 @@ app.get('/api/adresler', girisGerekli, async (req, res) => {
                             'katSayisi', a.kat_sayisi,
                             'bagimsizBolumSayisi', a.bagimsiz_bolum_sayisi,
                             'yapiDurumu', a.yapi_durumu,
+                            'durum', a.durum,
                             'olusturmaTarihi', a.olusturma_tarihi
                         )
                     )
@@ -706,7 +781,9 @@ app.get('/api/adresler', girisGerekli, async (req, res) => {
             ) AS geojson
             FROM (
                 SELECT * FROM adresler a
-                WHERE (a.silindi_mi IS FALSE OR a.silindi_mi IS NULL) ${yetkiKosulu} ${metinKosulu}
+                WHERE (a.silindi_mi IS FALSE OR a.silindi_mi IS NULL)
+                  AND a.durum = 'onaylandi'
+                  ${yetkiKosulu} ${metinKosulu}
                 ORDER BY a.olusturma_tarihi DESC
                 LIMIT 1000
             ) a;
@@ -737,83 +814,358 @@ app.post('/api/adresler', girisGerekli, async (req, res) => {
     }
 
     try {
+        // 🛡️ ONAY AKIŞI: Tam yetkili (admin/Genel Müdürlük) kullanıcının
+        // eklediği kayıtlar direkt onaylı sayılır; diğer kullanıcıların
+        // kayıtları "beklemede" olarak başlar ve admin onayı bekler.
+        const baslangicDurumu = req.kullanici.tam_yetki ? 'onaylandi' : 'beklemede';
+
         const insertQuery = `
             INSERT INTO adresler
-                (il, ilce, mahalle, sokak, dis_kapi_no, bina_adi, kat_sayisi, bagimsiz_bolum_sayisi, yapi_durumu, geom, ekleyen_kullanici_id)
+                (il, ilce, mahalle, sokak, dis_kapi_no, bina_adi, kat_sayisi, bagimsiz_bolum_sayisi, yapi_durumu, durum, geom, ekleyen_kullanici_id)
             VALUES
-                ($1, $2, $3, $4, $5, $6, $7, $8, $9, ST_SetSRID(ST_MakePoint($10, $11), 4326), $12)
+                ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, ST_SetSRID(ST_MakePoint($11, $12), 4326), $13)
             RETURNING id;
         `;
         const result = await pool.query(insertQuery, [
             il, ilce, mahalle, sokak || null, disKapiNo || null, binaAdi || null,
-            katSayisi || 0, bagimsizBolumSayisi || 0, yapiDurumu, lng, lat, req.kullanici.id,
+            katSayisi || 0, bagimsizBolumSayisi || 0, yapiDurumu, baslangicDurumu, lng, lat, req.kullanici.id,
         ]);
+
+        const yeniId = result.rows[0].id;
+
+        await adresGecmisiKaydet(
+            yeniId,
+            req.kullanici.id,
+            'OLUSTURULDU',
+            null,
+            { il, ilce, mahalle, sokak, disKapiNo, binaAdi, katSayisi, bagimsizBolumSayisi, yapiDurumu, durum: baslangicDurumu },
+            `${req.kullanici.ad_soyad} tarafından oluşturuldu.`,
+        );
 
         await islemLogKaydet(
             req.kullanici.id,
             'ADRES_EKLEME',
-            `"${mahalle}, ${sokak || '-'} ${disKapiNo || ''}" adresine yeni bina kaydı eklendi (${yapiDurumu}).`,
+            `"${mahalle}, ${sokak || '-'} ${disKapiNo || ''}" adresine yeni bina kaydı eklendi (${yapiDurumu})` +
+                (baslangicDurumu === 'beklemede' ? ' — onay bekliyor.' : '.'),
             lat,
             lng,
         );
 
-        res.status(201).json({ message: 'Bina/adres kaydı başarıyla eklendi!', id: result.rows[0].id });
+        res.status(201).json({
+            message:
+                baslangicDurumu === 'beklemede'
+                    ? 'Bina/adres kaydınız oluşturuldu ve yönetici onayına gönderildi.'
+                    : 'Bina/adres kaydı başarıyla eklendi!',
+            id: yeniId,
+            durum: baslangicDurumu,
+        });
     } catch (err) {
         console.error('Adres ekleme hatası:', err);
         res.status(500).json({ error: 'Adres kaydedilirken veritabanı hatası oluştu.' });
     }
 });
 
-// 📋 BİR BİNANIN BAĞIMSIZ BÖLÜMLERİNİ LİSTELEME
-app.get('/api/adresler/:id/bagimsiz-bolumler', girisGerekli, async (req, res) => {
+// ============================================================
+// 🛡️ ONAY AKIŞI (SADECE ADMİN / GENEL MÜDÜRLÜK)
+// ============================================================
+
+// 📋 Onay bekleyen tüm kayıtları listele (tüm bölgeler, admin görür)
+app.get('/api/adresler/beklemede', girisGerekli, adminGerekli, async (req, res) => {
     try {
         const sonuc = await pool.query(
-            `SELECT id, kapi_no, kullanim_turu, olusturma_tarihi
-             FROM bagimsiz_bolumler
-             WHERE adres_id = $1
-             ORDER BY kapi_no ASC`,
-            [req.params.id],
+            `SELECT
+                a.id, a.il, a.ilce, a.mahalle, a.sokak, a.dis_kapi_no, a.bina_adi,
+                a.kat_sayisi, a.bagimsiz_bolum_sayisi, a.yapi_durumu, a.olusturma_tarihi,
+                k.ad_soyad AS ekleyen_ad_soyad, k.bolge AS ekleyen_bolge
+             FROM adresler a
+             LEFT JOIN kullanicilar k ON k.id = a.ekleyen_kullanici_id
+             WHERE (a.silindi_mi IS FALSE OR a.silindi_mi IS NULL)
+               AND a.durum = 'beklemede'
+             ORDER BY a.olusturma_tarihi ASC`,
         );
         res.json(sonuc.rows);
     } catch (err) {
-        console.error('Bağımsız bölüm listesi hatası:', err);
-        res.status(500).json({ error: 'Bağımsız bölümler alınamadı.' });
+        console.error('Bekleyen kayıtlar hatası:', err);
+        res.status(500).json({ error: 'Bekleyen kayıtlar alınamadı.' });
+    }
+});
+// ✅ Bir kaydı onayla + Kullanıcıya Bildirim Gönder
+app.post('/api/adresler/:id/onayla', girisGerekli, adminGerekli, async (req, res) => {
+    try {
+        const mevcut = await pool.query(`SELECT * FROM adresler WHERE id = $1`, [req.params.id]);
+        if (mevcut.rows.length === 0) {
+            return res.status(404).json({ error: 'Kayıt bulunamadı.' });
+        }
+        const eski = mevcut.rows[0];
+
+        await pool.query(`UPDATE adresler SET durum = 'onaylandi' WHERE id = $1`, [req.params.id]);
+
+        // 🔔 KULLANICIYA BİLDİRİM OLUŞTUR
+        if (eski.ekleyen_kullanici_id) {
+            await pool.query(
+                `INSERT INTO bildirimler (kullanici_id, baslik, mesaj)
+                 VALUES ($1, $2, $3)`,
+                [
+                    eski.ekleyen_kullanici_id,
+                    '🎉 Bina Kaydınız Onaylandı!',
+                    `"${eski.mahalle}, ${eski.sokak || '-'}" adresinde girdiğiniz bina kaydı yönetici tarafından onaylandı ve haritada yayınlandı.`
+                ]
+            );
+        }
+
+        await adresGecmisiKaydet(
+            req.params.id,
+            req.kullanici.id,
+            'ONAYLANDI',
+            { durum: eski.durum },
+            { durum: 'onaylandi' },
+            `${req.kullanici.ad_soyad} tarafından onaylandı.`,
+        );
+
+        res.json({ message: 'Kayıt onaylandı.' });
+    } catch (err) {
+        console.error('Onaylama hatası:', err);
+        res.status(500).json({ error: 'Kayıt onaylanırken hata oluştu.' });
     }
 });
 
-// 📋 BİR BİNAYA YENİ BAĞIMSIZ BÖLÜM (DAİRE/İŞYERİ) EKLEME
-app.post('/api/adresler/:id/bagimsiz-bolumler', girisGerekli, async (req, res) => {
-    const { kapiNo, kullanimTuru } = req.body;
-    if (!kapiNo || !kullanimTuru) {
-        return res.status(400).json({ error: 'Kapı no ve kullanım türü zorunludur.' });
+// ❌ Bir kaydı reddet + Kullanıcıya Bildirim Gönder
+app.post('/api/adresler/:id/reddet', girisGerekli, adminGerekli, async (req, res) => {
+    try {
+        const { sebep } = req.body;
+        const mevcut = await pool.query(`SELECT * FROM adresler WHERE id = $1`, [req.params.id]);
+        if (mevcut.rows.length === 0) {
+            return res.status(404).json({ error: 'Kayıt bulunamadı.' });
+        }
+        const eski = mevcut.rows[0];
+
+        await pool.query(
+            `UPDATE adresler SET durum = 'reddedildi', red_sebebi = $2 WHERE id = $1`,
+            [req.params.id, sebep || null],
+        );
+
+        // 🔔 KULLANICIYA RED BİLDİRİMİ OLUŞTUR
+        if (eski.ekleyen_kullanici_id) {
+            await pool.query(
+                `INSERT INTO bildirimler (kullanici_id, baslik, mesaj)
+                 VALUES ($1, $2, $3)`,
+                [
+                    eski.ekleyen_kullanici_id,
+                    '❌ Bina Kaydınız Reddedildi',
+                    `"${eski.mahalle}, ${eski.sokak || '-'}" adresli bina kaydınız reddedildi.` + (sebep ? ` Gerekçe: ${sebep}` : '')
+                ]
+            );
+        }
+
+        res.json({ message: 'Kayıt reddedildi.' });
+    } catch (err) {
+        console.error('Reddetme hatası:', err);
+        res.status(500).json({ error: 'Kayıt reddedilirken hata oluştu.' });
+    }
+});
+
+// 🔔 BİLDİRİM BİLGİSİ ÇEKME & SAYI HESAPLAMA API'Sİ
+app.get('/api/bildirimler', girisGerekli, async (req, res) => {
+    try {
+        let beklemedeSayisi = 0;
+        
+        // Eğer giriş yapan kullanıcı admin ise onay bekleyen bina sayısını da getir
+        if (req.kullanici.tam_yetki) {
+            const bekleyenRes = await pool.query(
+                `SELECT COUNT(*) FROM adresler WHERE (silindi_mi IS FALSE OR silindi_mi IS NULL) AND durum = 'beklemede'`
+            );
+            beklemedeSayisi = parseInt(bekleyenRes.rows[0].count) || 0;
+        }
+
+        // Kullanıcının okunmamış bildirimlerini getir
+        const bildirimRes = await pool.query(
+            `SELECT * FROM bildirimler WHERE kullanici_id = $1 ORDER BY olusturma_tarihi DESC LIMIT 50`,
+            [req.kullanici.id]
+        );
+
+        const okunmamisSayisi = bildirimRes.rows.filter(b => !b.okundu).length;
+
+        res.json({
+            beklemedeSayisi,
+            okunmamisSayisi,
+            bildirimler: bildirimRes.rows
+        });
+    } catch (err) {
+        console.error("Bildirim çekme hatası:", err);
+        res.status(500).json({ error: "Bildirimler alınamadı." });
+    }
+});
+
+// 🔔 BİLDİRİMLERİ OKUNDU İŞARETLEME API'Sİ
+app.post('/api/bildirimler/okundu', girisGerekli, async (req, res) => {
+    try {
+        await pool.query(`UPDATE bildirimler SET okundu = TRUE WHERE kullanici_id = $1`, [req.kullanici.id]);
+        res.json({ message: "Bildirimler okundu." });
+    } catch (err) {
+        res.status(500).json({ error: "İşlem başarısız." });
+    }
+});
+
+// 📋 Kullanıcının SADECE kendi eklediği onay bekleyen bina kayıtlarını getirir
+app.get('/api/adresler/benim-bekleyenlerim', girisGerekli, async (req, res) => {
+    try {
+        const sonuc = await pool.query(
+            `SELECT id, il, ilce, mahalle, sokak, dis_kapi_no, bina_adi, yapi_durumu, olusturma_tarihi
+             FROM adresler
+             WHERE ekleyen_kullanici_id = $1
+               AND (silindi_mi IS FALSE OR silindi_mi IS NULL)
+               AND durum = 'beklemede'
+             ORDER BY olusturma_tarihi DESC`,
+            [req.kullanici.id]
+        );
+        res.json(sonuc.rows);
+    } catch (err) {
+        console.error('Kullanıcı bekleyen kayıtlar hatası:', err);
+        res.status(500).json({ error: 'Bekleyen kayıtlarınız alınamadı.' });
+    }
+});
+
+// ============================================================
+// ✏️ BİNA/ADRES KAYDINI GÜNCELLEME (versiyon geçmişine işlenir)
+// ============================================================
+app.put('/api/adresler/:id', girisGerekli, async (req, res) => {
+    const {
+        mahalle, sokak, disKapiNo, binaAdi,
+        katSayisi, bagimsizBolumSayisi, yapiDurumu,
+    } = req.body;
+
+    const GECERLI_DURUMLAR = ['ruhsatli', 'ruhsatsiz', 'insaat', 'yikik'];
+    if (yapiDurumu && !GECERLI_DURUMLAR.includes(yapiDurumu)) {
+        return res.status(400).json({ error: 'Geçersiz yapı durumu.' });
     }
 
     try {
-        const result = await pool.query(
-            `INSERT INTO bagimsiz_bolumler (adres_id, kapi_no, kullanim_turu, ekleyen_kullanici_id)
-             VALUES ($1, $2, $3, $4)
-             RETURNING id`,
-            [req.params.id, kapiNo, kullanimTuru, req.kullanici.id],
+        const mevcut = await pool.query(
+            `SELECT * FROM adresler WHERE id = $1 AND (silindi_mi IS FALSE OR silindi_mi IS NULL)`,
+            [req.params.id],
+        );
+        if (mevcut.rows.length === 0) {
+            return res.status(404).json({ error: 'Kayıt bulunamadı veya silinmiş.' });
+        }
+        const eski = mevcut.rows[0];
+
+        const yeni = {
+            mahalle: mahalle ?? eski.mahalle,
+            sokak: sokak ?? eski.sokak,
+            dis_kapi_no: disKapiNo ?? eski.dis_kapi_no,
+            bina_adi: binaAdi ?? eski.bina_adi,
+            kat_sayisi: katSayisi ?? eski.kat_sayisi,
+            bagimsiz_bolum_sayisi: bagimsizBolumSayisi ?? eski.bagimsiz_bolum_sayisi,
+            yapi_durumu: yapiDurumu ?? eski.yapi_durumu,
+        };
+
+        await pool.query(
+            `UPDATE adresler SET
+                mahalle = $1, sokak = $2, dis_kapi_no = $3, bina_adi = $4,
+                kat_sayisi = $5, bagimsiz_bolum_sayisi = $6, yapi_durumu = $7
+             WHERE id = $8`,
+            [
+                yeni.mahalle, yeni.sokak, yeni.dis_kapi_no, yeni.bina_adi,
+                yeni.kat_sayisi, yeni.bagimsiz_bolum_sayisi, yeni.yapi_durumu,
+                req.params.id,
+            ],
         );
 
-        // Binadaki toplam bağımsız bölüm sayısını da otomatik güncelleyelim
-        await pool.query(
-            `UPDATE adresler SET bagimsiz_bolum_sayisi = (
-                SELECT COUNT(*) FROM bagimsiz_bolumler WHERE adres_id = $1
-             ) WHERE id = $1`,
-            [req.params.id],
+        await adresGecmisiKaydet(
+            req.params.id,
+            req.kullanici.id,
+            'GUNCELLENDI',
+            {
+                mahalle: eski.mahalle, sokak: eski.sokak, dis_kapi_no: eski.dis_kapi_no,
+                bina_adi: eski.bina_adi, kat_sayisi: eski.kat_sayisi,
+                bagimsiz_bolum_sayisi: eski.bagimsiz_bolum_sayisi, yapi_durumu: eski.yapi_durumu,
+            },
+            yeni,
+            `${req.kullanici.ad_soyad} tarafından güncellendi.`,
         );
 
         await islemLogKaydet(
             req.kullanici.id,
-            'BAGIMSIZ_BOLUM_EKLEME',
-            `Bina #${req.params.id} için "${kapiNo}" numaralı bağımsız bölüm eklendi (${kullanimTuru}).`,
+            'ADRES_GUNCELLEME',
+            `"${yeni.mahalle}, ${yeni.sokak || '-'}" adresli bina kaydı (#${req.params.id}) güncellendi.`,
         );
 
-        res.status(201).json({ message: 'Bağımsız bölüm kaydedildi!', id: result.rows[0].id });
+        res.json({ message: 'Kayıt güncellendi.' });
     } catch (err) {
-        console.error('Bağımsız bölüm ekleme hatası:', err);
-        res.status(500).json({ error: 'Bağımsız bölüm kaydedilirken hata oluştu.' });
+        console.error('Adres güncelleme hatası:', err);
+        res.status(500).json({ error: 'Kayıt güncellenirken hata oluştu.' });
+    }
+});
+
+// 📜 Bir binanın versiyon/değişiklik geçmişini listele
+app.get('/api/adresler/:id/gecmis', girisGerekli, async (req, res) => {
+    try {
+        const sonuc = await pool.query(
+            `SELECT
+                g.id, g.degisiklik_tipi, g.eski_deger, g.yeni_deger, g.aciklama, g.olusturma_tarihi,
+                k.ad_soyad AS kullanici_ad_soyad
+             FROM adres_gecmisi g
+             LEFT JOIN kullanicilar k ON k.id = g.kullanici_id
+             WHERE g.adres_id = $1
+             ORDER BY g.olusturma_tarihi ASC`,
+            [req.params.id],
+        );
+        res.json(sonuc.rows);
+    } catch (err) {
+        console.error('Adres geçmişi çekme hatası:', err);
+        res.status(500).json({ error: 'Değişiklik geçmişi alınamadı.' });
+    }
+});
+
+// 🏠 BAĞIMSIZ BÖLÜM EKLEME (Kullanıcı ID Garantili Düzeltme)
+app.post('/api/adresler/:id/bagimsiz-bolumler', girisGerekli, async (req, res) => {
+    const { id } = req.params;
+    const { kapiNo, kullanimTuru, katNo } = req.body;
+
+    // Middleware'in atadığı nesneye göre kullanıcı ID'sini yakala
+    const kullanici = req.user || req.kullanici || {};
+    const ekleyenId = kullanici.id || kullanici.kullanici_id || null;
+
+    if (!kapiNo) {
+        return res.status(400).json({ error: "Kapı numarası gereklidir." });
+    }
+
+    try {
+        const result = await pool.query(
+            `INSERT INTO bagimsiz_bolumler (adres_id, kapi_no, kullanim_turu, kat_no, ekleyen_kullanici_id)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [id, kapiNo, kullanimTuru || 'mesken', Number(katNo) || 0, ekleyenId]
+        );
+
+        // Bina bağımsız bölüm sayısını otomatik güncelle
+        await pool.query(
+            `UPDATE adresler 
+             SET bagimsiz_bolum_sayisi = (SELECT COUNT(*) FROM bagimsiz_bolumler WHERE adres_id = $1)
+             WHERE id = $1`,
+            [id]
+        );
+
+        res.json({ message: "Bağımsız bölüm başarıyla eklendi.", bagimsizBolum: result.rows[0] });
+    } catch (err) {
+        console.error("Bağımsız bölüm ekleme hatası:", err);
+        res.status(500).json({ error: "Sunucu hatası oluştu." });
+    }
+});
+// 📜 BİNANIN BAĞIMSIZ BÖLÜMLERİNİ GETİRME (KATA GÖRE SIRALI)
+app.get('/api/adresler/:id/bagimsiz-bolumler', girisGerekli, async (req, res) => {
+    const { id } = req.params;
+    try {
+        const result = await pool.query(
+            `SELECT id, kapi_no, kullanim_turu, kat_no 
+             FROM bagimsiz_bolumler 
+             WHERE adres_id = $1 
+             ORDER BY kat_no ASC, kapi_no ASC`,
+            [id]
+        );
+        res.json(result.rows);
+    } catch (err) {
+        console.error("Bağımsız bölüm çekme hatası:", err);
+        res.status(500).json({ error: "Sunucu hatası." });
     }
 });
 
