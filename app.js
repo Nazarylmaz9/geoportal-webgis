@@ -907,7 +907,7 @@ app.post('/api/adresler/:id/onayla', girisGerekli, adminGerekli, async (req, res
                  VALUES ($1, $2, $3)`,
                 [
                     eski.ekleyen_kullanici_id,
-                    '🎉 Bina Kaydınız Onaylandı!',
+                    ' Bina Kaydınız Onaylandı!',
                     `"${eski.mahalle}, ${eski.sokak || '-'}" adresinde girdiğiniz bina kaydı yönetici tarafından onaylandı ve haritada yayınlandı.`
                 ]
             );
@@ -951,7 +951,7 @@ app.post('/api/adresler/:id/reddet', girisGerekli, adminGerekli, async (req, res
                  VALUES ($1, $2, $3)`,
                 [
                     eski.ekleyen_kullanici_id,
-                    '❌ Bina Kaydınız Reddedildi',
+                    ' Bina Kaydınız Reddedildi',
                     `"${eski.mahalle}, ${eski.sokak || '-'}" adresli bina kaydınız reddedildi.` + (sebep ? ` Gerekçe: ${sebep}` : '')
                 ]
             );
@@ -1205,6 +1205,89 @@ app.post('/api/analiz/buffer', girisGerekli, async (req, res) => {
     res.status(500).json({ error: 'Veritabanı analiz hatası.' });
   }
 });
+
+// 📐 POLİGON İÇİ KESİŞİM ANALİZİ (Garantili & Temiz PostGIS Versiyonu)
+app.post('/api/analiz/kesisim', girisGerekli, async (req, res) => {
+    const { geometry } = req.body;
+
+    if (!geometry) {
+        return res.status(400).json({ error: "Geçerli bir poligon geometrisi gereklidir." });
+    }
+
+    try {
+        const geojsonStr = JSON.stringify(geometry);
+
+        // 1. Poligon içinde kalan CBS Noktalarını (POI) bul
+        const noktalarSorgu = await pool.query(
+            `SELECT id, isim, tip, ST_Y(geom::geometry) as lat, ST_X(geom::geometry) as lng 
+             FROM cbs_noktalar 
+             WHERE ST_Contains(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), geom::geometry)`,
+            [geojsonStr]
+        );
+
+        // 2. Poligon içinde kalan Binaları/Adresleri bul
+        const binalarSorgu = await pool.query(
+            `SELECT id, mahalle, sokak, dis_kapi_no, bina_adi, yapi_durumu, bagimsiz_bolum_sayisi,
+                    ST_Y(geom::geometry) as lat, ST_X(geom::geometry) as lng 
+             FROM adresler 
+             WHERE ST_Contains(ST_SetSRID(ST_GeomFromGeoJSON($1), 4326), geom::geometry)`,
+            [geojsonStr]
+        );
+
+        res.json({
+            toplamEleman: noktalarSorgu.rows.length + binalarSorgu.rows.length,
+            noktalar: noktalarSorgu.rows,
+            binalar: binalarSorgu.rows
+        });
+    } catch (err) {
+        console.error("Kesişim analizi hatası:", err);
+        res.status(500).json({ error: "Mekânsal analiz sırasında sunucu hatası oluştu.", detay: err.message });
+    }
+});
+
+// 📍 EN YAKIN TESİS TESPİTİ (Nearest Neighbor / K-NN)
+app.post('/api/analiz/en-yakin-tesis', girisGerekli, async (req, res) => {
+    const { lat, lng, tip } = req.body; // tip opsiyonel (Örn: 'hastane', 'okul' veya hepsi)
+
+    if (!lat || !lng) {
+        return res.status(400).json({ error: "Geçerli bir enlem ve boylam (lat, lng) gereklidir." });
+    }
+
+    try {
+        let sorguEk = "";
+        const params = [lng, lat];
+
+        if (tip && tip !== 'hepsi') {
+            sorguEk = "WHERE tip = $3";
+            params.push(tip);
+        }
+
+        // PostGIS ST_DistanceSpheroid veya ST_DistanceSphere ile metre cinsinden en yakın 1 noktayı bulma
+        const sql = `
+            SELECT id, isim, tip, 
+                   ST_Y(geom::geometry) as lat, 
+                   ST_X(geom::geometry) as lng,
+                   ROUND(ST_DistanceSphere(geom::geometry, ST_SetSRID(ST_MakePoint($1, $2), 4326))::numeric, 1) as mesafe_metre
+            FROM cbs_noktalar
+            ${sorguEk}
+            ORDER BY geom::geometry <-> ST_SetSRID(ST_MakePoint($1, $2), 4326)
+            LIMIT 1;
+        `;
+
+        const result = await pool.query(sql, params);
+
+        if (result.rows.length === 0) {
+            return res.status(404).json({ error: "Yakında herhangi bir tesis veya CBS noktası bulunamadı." });
+        }
+
+        res.json({
+            enYakinTesis: result.rows[0]
+        });
+    } catch (err) {
+        console.error("En yakın tesis analizi hatası:", err);
+        res.status(500).json({ error: "En yakın tesis hesaplanırken sunucu hatası oluştu.", detay: err.message });
+    }
+});
 app.listen(PORT, () => {
-    console.log(`Sunucu http://localhost:${PORT} adresinde tıkır tıkır çalışıyor! 🚀`);
+    console.log(`Sunucu http://localhost:${PORT} adresinde çalışıyor! `);
 });

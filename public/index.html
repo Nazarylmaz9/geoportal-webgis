@@ -1727,7 +1727,7 @@
               placeholder="Örn: İstiklal"
             />
             <button class="btn-primary" onclick="adresVeritabaniniAra()">
-              🔍 Adres Veritabanında Ara
+              Adres Veritabanında Ara
             </button>
             <button class="btn-secondary" onclick="adresAramaSifirla()">
               Filtreyi Temizle
@@ -1774,7 +1774,7 @@
           </div>
 
           <div class="panel-section">
-            <h5>✏️ Çizim & Ölçüm Araçları</h5>
+            <h5>Çizim & Ölçüm Araçları</h5>
             <p style="font-size: 12px; color: #64748b; margin-bottom: 8px">
               Soldaki araç çubuğundan çizim yapın, sonuç burada görünecek. Yetki
               bölgeniz dışında çizim kabul edilmeyecektir.
@@ -1792,6 +1792,72 @@
             >
               Henüz bir çizim yapılmadı.
             </div>
+            <!-- 📐 KESİŞİM ANALİZİ BUTONU -->
+            <div
+              style="
+                margin-top: 8px;
+                border-top: 1px solid #e2e8f0;
+                padding-top: 8px;
+              "
+            >
+              <h5 style="margin-bottom: 4px">Mekânsal Kesişim Analizi</h5>
+              <p style="font-size: 11px; color: #64748b; margin-bottom: 6px">
+                Haritada çizdiğiniz poligonun içinde kalan binaları ve noktaları
+                analiz edin.
+              </p>
+              <button
+                class="btn-primary"
+                onclick="kesisimAnaliziYap()"
+                style="background-color: #0e8577; margin-bottom: 6px"
+              >
+                Çizim İçi Verileri Analiz Et
+              </button>
+            </div>
+            <!-- 🏥 EN YAKIN TESİS TESPİTİ PANELİ -->
+            <div
+              style="
+                margin-top: 10px;
+                border-top: 1px solid #e2e8f0;
+                padding-top: 8px;
+              "
+            >
+              <h5 style="margin-bottom: 4px">En Yakın Tesis Tespiti</h5>
+              <p style="font-size: 11px; color: #64748b; margin-bottom: 6px">
+                Haritada tıkladığınız konuma en yakın CBS tesisini ve mesafesini
+                bulun.
+              </p>
+              <div style="display: flex; gap: 6px; margin-bottom: 6px">
+                <select
+                  id="tesisTipiSelect"
+                  class="form-select"
+                  style="font-size: 11px; padding: 4px"
+                >
+                  <option value="hepsi">🌐 Tüm Tesisler</option>
+                  <option value="Hastane">🏥 Hastane / Sağlık</option>
+                  <option value="Okul / Eğitim">🏫 Okul / Eğitim</option>
+                  <option value="Park/Yeşil Alan">🌳 Park / Yeşil Alan</option>
+                  <option value="Kafe / Sosyal Tesis">
+                    ☕ Kafe / Sosyal Tesis
+                  </option>
+                  <option value="Tarihi Mekan">🏛️ Tarihi Mekan</option>
+                </select>
+              </div>
+              <button
+                class="btn-primary"
+                onclick="enYakinTesisiBul()"
+                style="background-color: #0d9488"
+              >
+                En Yakın Tesisi Hesapla
+              </button>
+              <button
+                class="btn-primary"
+                onclick="analizCizimleriniTemizle()"
+                style="background-color: #f1f5f9; color: #475569; flex: 1"
+                title="Çizimleri Sil"
+              >
+                Temizle
+              </button>
+            </div>
 
             <div
               style="
@@ -1800,7 +1866,7 @@
                 padding-top: 8px;
               "
             >
-              <h5 style="margin-bottom: 4px">🛰️ Tampon Bölge (Buffer)</h5>
+              <h5 style="margin-bottom: 4px">Tampon Bölge (Buffer)</h5>
               <label for="bufferMesafe" style="font-size: 11px; color: #475569"
                 >Yarıçap / Mesafe (Metre):</label
               >
@@ -6815,6 +6881,341 @@
             kutu.innerHTML = `<div style="font-size: 12px; color: #dc2626; text-align: center; padding: 20px;">⚠️ ${err.message}</div>`;
           });
       }
+      // 📐 Poligon İçi Kesişim Analizi Çalıştırıcı
+      window.kesisimAnaliziYap = function () {
+        if (!window.sonCizilenLayer) {
+          alert("Lütfen önce harita üzerinde bir poligon (alan) çizin!");
+          return;
+        }
+
+        const geojson = window.sonCizilenLayer.toGeoJSON();
+        if (
+          geojson.geometry.type !== "Polygon" &&
+          geojson.geometry.type !== "MultiPolygon"
+        ) {
+          alert(
+            "Kesişim analizi yapabilmek için lütfen nokta veya çizgi değil, bir POLİGON çizin!",
+          );
+          return;
+        }
+
+        const merkez = sekilMerkeziniAl(window.sonCizilenLayer);
+        if (!kullaniciBolgeYetkisiVarMi(merkez.lat, merkez.lng)) {
+          const bolgeAdi = window.aktifKullanici
+            ? window.aktifKullanici.bolge
+            : "Yetkili olduğunuz bölge";
+          alert(
+            `⚠️ Yetki İhlali!\n"${bolgeAdi}" sınırları dışındaki bir alan için kesişim analizi yapamazsınız.`,
+          );
+          return;
+        }
+
+        yetkiliFetch("/api/analiz/kesisim", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ geometry: geojson.geometry }),
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error("Analiz yapılamadı.");
+            return res.json();
+          })
+          .then((data) => {
+            const cizimSonucDiv = document.getElementById("cizimSonuc");
+
+            let raporHtml = `<div style="font-size:12px;">`;
+            raporHtml += `<strong style="color:#0e8577;"> Kesişim Analiz Raporu:</strong><br/>`;
+            raporHtml += `<b>Toplam Bulunan Veri:</b> ${data.toplamEleman}<br/><hr style="margin:4px 0; border-top:1px solid #cbd5e1;"/>`;
+
+            if (data.binalar && data.binalar.length > 0) {
+              raporHtml += `<b style="color:#1e293b;">🏠 Binalar (${data.binalar.length}):</b><ul style="padding-left:14px; margin-top:2px;">`;
+              data.binalar.forEach((b) => {
+                raporHtml += `<li>${b.bina_adi || b.mahalle} (No:${b.dis_kapi_no || "-"})</li>`;
+              });
+              raporHtml += `</ul>`;
+            } else {
+              raporHtml += `<span style="color:#64748b;">🏠 Alan içinde bina yok.</span><br/>`;
+            }
+
+            if (data.noktalar && data.noktalar.length > 0) {
+              raporHtml += `<b style="color:#1e293b; margin-top:4px; display:block;">📍 CBS Noktaları (${data.noktalar.length}):</b><ul style="padding-left:14px; margin-top:2px;">`;
+              data.noktalar.forEach((n) => {
+                raporHtml += `<li>${n.isim} (${n.tip})</li>`;
+              });
+              raporHtml += `</ul>`;
+            } else {
+              raporHtml += `<span style="color:#64748b;">📍 Alan içinde CBS noktası yok.</span>`;
+            }
+
+            raporHtml += `</div>`;
+
+            // Kesişim verisini global hafızaya alalım
+            window.sonKesisimVerisi = data;
+
+            raporHtml += `
+  <button class="btn-primary" onclick="excelOlarakIndir('kesisim')" style="background-color: #0e8577; margin-top: 8px;">
+     Sonuçları Excel Olarak İndir (.xlsx)
+  </button>
+`;
+
+            if (cizimSonucDiv) cizimSonucDiv.innerHTML = raporHtml;
+
+            aktiviteLogKaydet(
+              "KESISIM_ANALIZI",
+              `Poligon içi kesişim analizi yapıldı (${data.toplamEleman} öznitelik bulundu).`,
+              merkez.lat,
+              merkez.lng,
+            );
+            alert(
+              `Analiz Tamamlandı! Seçili alan içinde ${data.toplamEleman} adet nesne tespit edildi.`,
+            );
+          })
+          .catch((err) => {
+            console.error(err);
+            alert("Kesişim analizi yapılırken veritabanı hatası oluştu!");
+          });
+      };
+      // Global değişkenler (eski marker ve çizgileri temizlemek için)
+      window.enYakinCizgiLayer = null;
+      window.enYakinKaynakMarker = null;
+      window.enYakinHedefMarker = null;
+
+      // 🏥 En Yakın Tesis Tespiti (Görsel İşaretleyicili Versiyon)
+      window.enYakinTesisiBul = function () {
+        let hedefLat, hedefLng;
+
+        if (window.sonTiklananKonum) {
+          hedefLat = window.sonTiklananKonum.lat;
+          hedefLng = window.sonTiklananKonum.lng;
+        } else if (window.map) {
+          const center = window.map.getCenter();
+          hedefLat = center.lat;
+          hedefLng = center.lng;
+        } else {
+          alert("Lütfen önce haritada bir yere tıklayın!");
+          return;
+        }
+
+        // 🛡️ BÖLGE YETKİ KONTROLÜ
+        if (!kullaniciBolgeYetkisiVarMi(hedefLat, hedefLng)) {
+          const bolgeAdi = window.aktifKullanici
+            ? window.aktifKullanici.bolge
+            : "Yetkili olduğunuz bölge";
+          alert(
+            `⚠️ Yetki İhlali!\n"${bolgeAdi}" sınırları dışındaki bir konum için en yakın tesis analizi yapamazsınız.`,
+          );
+          return;
+        }
+
+        const secilenTip = document.getElementById("tesisTipiSelect")
+          ? document.getElementById("tesisTipiSelect").value
+          : "hepsi";
+
+        yetkiliFetch("/api/analiz/en-yakin-tesis", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lat: hedefLat,
+            lng: hedefLng,
+            tip: secilenTip,
+          }),
+        })
+          .then((res) => {
+            if (!res.ok) throw new Error("Yakında uygun tesis bulunamadı.");
+            return res.json();
+          })
+          .then((data) => {
+            const tesis = data.enYakinTesis;
+
+            // 🧹 Önceki analizden kalan çizgi ve marker'ları haritadan temizle
+            if (window.enYakinCizgiLayer)
+              window.map.removeLayer(window.enYakinCizgiLayer);
+            if (window.enYakinKaynakMarker)
+              window.map.removeLayer(window.enYakinKaynakMarker);
+            if (window.enYakinHedefMarker)
+              window.map.removeLayer(window.enYakinHedefMarker);
+
+            const baslangic = [hedefLat, hedefLng];
+            const bitis = [tesis.lat, tesis.lng];
+
+            // 1. 🔵 Tıkladığımız konuma şık mavi bir çember nokta koy
+            window.enYakinKaynakMarker = L.circleMarker(baslangic, {
+              radius: 8,
+              fillColor: "#3b82f6",
+              color: "#ffffff",
+              weight: 2,
+              fillOpacity: 1,
+            })
+              .addTo(window.map)
+              .bindPopup(
+                "📍 <b>Analiz Başlangıç Noktası</b><br/>(Tıkladığınız Yer)",
+              );
+
+            // 2. 📍 Bulunan tesise hedef pin'i koy ve ismini yaz
+            window.enYakinHedefMarker = L.marker(bitis).addTo(window.map);
+
+            const mesafeMetin =
+              tesis.mesafe_metre > 1000
+                ? `${(tesis.mesafe_metre / 1000).toFixed(2)} km`
+                : `${tesis.mesafe_metre} metre`;
+
+            window.enYakinHedefMarker
+              .bindPopup(
+                `
+        <div style="font-size:12px; font-weight:600; text-align:center;">
+           <b>En Yakın Tesis Bulundu!</b><br/>
+           <b>${tesis.isim}</b> (${tesis.tip})<br/>
+           Kuş Uçuşu Mesafe: <span style="color:#d97706;">${mesafeMetin}</span>
+        </div>
+      `,
+              )
+              .openPopup();
+
+            // 3. 📉 İki nokta arasına kırmızı kesikli yön çizgisi çek
+            window.enYakinCizgiLayer = L.polyline([baslangic, bitis], {
+              color: "#ef4444",
+              weight: 3,
+              dashArray: "6, 8",
+              opacity: 0.9,
+            }).addTo(window.map);
+
+            // Haritayı her iki noktayı da kapsayacak şekilde odakla
+            window.map.fitBounds(window.enYakinCizgiLayer.getBounds(), {
+              padding: [50, 50],
+            });
+
+            // Sağ panel raporunu güncelle
+            const cizimSonucDiv = document.getElementById("cizimSonuc");
+            if (cizimSonucDiv) {
+              cizimSonucDiv.innerHTML = `
+          <div style="font-size:12px; background:#f0fdf4; padding:8px; border-radius:6px; border:1px solid #bbf7d0;">
+            <strong style="color:#15803d;"> En Yakın Tesis Analizi:</strong><br/>
+            <b>Başlangıç:</b> İşaretlenen Konum (🔵)<br/>
+            <b>Tespit Edilen:</b> ${tesis.isim} (${tesis.tip})<br/>
+            <b>Mesafe:</b> ${mesafeMetin}
+          </div>
+        `;
+            }
+
+            aktiviteLogKaydet(
+              "EN_YAKIN_TESIS",
+              `En yakın tesis bulundu: ${tesis.isim} (${mesafeMetin})`,
+              hedefLat,
+              hedefLng,
+            );
+          })
+          .catch((err) => {
+            alert("⚠️ " + err.message);
+          });
+      };
+      // Haritaya her tıklandığında son konumu hafızaya alma
+      if (window.map) {
+        window.map.on("click", function (e) {
+          window.sonTiklananKonum = e.latlng;
+        });
+      }
+      // 🧹 Analiz Çizimlerini ve Marker'ları Haritadan Temizleyen Fonksiyon
+      window.analizCizimleriniTemizle = function () {
+        if (window.enYakinCizgiLayer) {
+          window.map.removeLayer(window.enYakinCizgiLayer);
+          window.enYakinCizgiLayer = null;
+        }
+        if (window.enYakinKaynakMarker) {
+          window.map.removeLayer(window.enYakinKaynakMarker);
+          window.enYakinKaynakMarker = null;
+        }
+        if (window.enYakinHedefMarker) {
+          window.map.removeLayer(window.enYakinHedefMarker);
+          window.enYakinHedefMarker = null;
+        }
+
+        // Sağ paneldeki analiz sonucunu temizle
+        const cizimSonucDiv = document.getElementById("cizimSonuc");
+        if (cizimSonucDiv) {
+          cizimSonucDiv.innerHTML =
+            '<span style="color:#64748b; font-size:11px;">Sonuçlar burada görünecek.</span>';
+        }
+      };
+
+      // 🖱️ Haritada Boş Bir Yere Tıklandığında Çizimleri Silme & Son Konumu Güncelleme
+      if (window.map) {
+        window.map.on("click", function (e) {
+          // 1. Yeni tıklanan konumu hafızaya al
+          window.sonTiklananKonum = e.latlng;
+
+          // 2. Eğer mevcut bir analiz çizgisi haritada varsa otomatik temizle
+          if (
+            window.enYakinCizgiLayer ||
+            window.enYakinKaynakMarker ||
+            window.enYakinHedefMarker
+          ) {
+            analizCizimleriniTemizle();
+          }
+        });
+      }
+      // 📊 Kesişim Analizi Sonuçlarını Excel (.csv) Olarak İndirme
+      window.excelOlarakIndir = function () {
+        if (!window.sonKesisimVerisi) {
+          alert(
+            "⚠️ İndirilecek kesişim verisi bulunamadı! Lütfen önce haritada bir alan çizip kesişim analizi yapın.",
+          );
+          return;
+        }
+
+        const binalar = window.sonKesisimVerisi.binalar || [];
+        const noktalar = window.sonKesisimVerisi.noktalar || [];
+        let veriListesi = [];
+
+        // Binaları ekle
+        binalar.forEach((b) => {
+          veriListesi.push({
+            Tür: "Bina",
+            "Ad/Mahalle": b.bina_adi || b.mahalle || "-",
+            "Kapı No": b.dis_kapi_no || "-",
+            "Detay/Tip": b.yapi_durumu || "Bina",
+            "Enlem (Lat)": b.lat,
+            "Boylam (Lng)": b.lng,
+          });
+        });
+
+        // CBS Noktalarını ekle
+        noktalar.forEach((n) => {
+          veriListesi.push({
+            Tür: "CBS Noktası",
+            "Ad/Mahalle": n.isim,
+            "Kapı No": "-",
+            "Detay/Tip": n.tip,
+            "Enlem (Lat)": n.lat,
+            "Boylam (Lng)": n.lng,
+          });
+        });
+
+        if (veriListesi.length === 0) {
+          alert(
+            "⚠️ Çizilen alan içinde indirilecek herhangi bir veri bulunamadı.",
+          );
+          return;
+        }
+
+        // CSV Dönüştürme ve İndirme
+        const header = Object.keys(veriListesi[0]).join(";");
+        const rows = veriListesi.map((row) =>
+          Object.values(row)
+            .map((val) => `"${val !== undefined && val !== null ? val : ""}"`)
+            .join(";"),
+        );
+        const csvContent = "\uFEFF" + [header, ...rows].join("\n");
+
+        const blob = new Blob([csvContent], {
+          type: "text/csv;charset=utf-8;",
+        });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", "Mekansal_Kesisim_Raporu.csv");
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+      };
     </script>
   </body>
 </html>
