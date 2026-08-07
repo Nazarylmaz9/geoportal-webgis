@@ -22,6 +22,8 @@
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@500;600&display=swap"
       rel="stylesheet"
     />
+    <!-- 📊 Chart.js (Önceden yüklenmesi için head içinde olmalı) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
       :root {
         --renk-marka: #12293a;
@@ -581,6 +583,23 @@
         color: #0f172a;
         font-weight: 700;
       }
+      /* 🏷️ Harita Üzerindeki Dinamik Bina Etiketleri */
+      .bina-label-style {
+        background: #ffffff !important;
+        border: 1.5px solid #0d9488 !important;
+        border-radius: 4px !important;
+        color: #0f172a !important;
+        font-size: 11px !important;
+        font-weight: 700 !important;
+        padding: 2px 6px !important;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+        white-space: nowrap !important;
+        pointer-events: none !important;
+      }
+
+      .bina-label-style::before {
+        display: none !important;
+      }
     </style>
   </head>
   <body>
@@ -912,13 +931,16 @@
         <a href="javascript:void(0)" onclick="openServisModal()">Servisler</a>
         <a href="javascript:void(0)" onclick="togglePanel('sol')">Katmanlar</a>
         <a href="javascript:void(0)" onclick="togglePanel('sag')">Araçlar</a>
-        <a href="javascript:void(0)" onclick="toggleIstatistikPanel()"
+        <a href="javascript:void(0)" onclick="openIstatistikDashboardModal()"
           >İstatistik</a
         >
         <a href="javascript:void(0)" onclick="toggleAdresRaporPanel()"
           >Adres Raporu</a
         >
         <a href="javascript:void(0)" onclick="openCoordModal()">Koordinat</a>
+        <a href="javascript:void(0)" onclick="openKayitliCizimlerModal()"
+          >Kayıtlı Çizimler</a
+        >
         <a href="javascript:void(0)" onclick="openHakkindaModal()">Hakkında</a>
         <div style="position: relative; display: inline-block">
           <button
@@ -1260,7 +1282,7 @@
                   id="chkIller"
                   onchange="toggleKatman('iller')"
                 />
-                🗺️ İl Sınırları (Poligon)
+                🗺️ İl Sınırları
               </label>
               <div
                 id="illerKatmaniNot"
@@ -1792,6 +1814,13 @@
             >
               Henüz bir çizim yapılmadı.
             </div>
+            <button
+              class="btn-primary"
+              onclick="cizimiVeritabaninaKaydet()"
+              style="background-color: #0e8577; margin-bottom: 6px"
+            >
+              Çizimi Veritabanına Kaydet
+            </button>
             <!-- 📐 KESİŞİM ANALİZİ BUTONU -->
             <div
               style="
@@ -1967,7 +1996,7 @@
             gap: 8px;
           "
         >
-          🌍 GeoPortal
+           GeoPortal
         </h3>
         <p
           style="
@@ -2007,7 +2036,7 @@
               font-weight: 700;
             "
           >
-            🚀 Öne Çıkan Kabiliyetler
+             Öne Çıkan Kabiliyetler
           </h4>
           <ul
             style="
@@ -2047,7 +2076,7 @@
               font-weight: 700;
             "
           >
-            🛠️ Teknolojik Altyapı
+             Teknolojik Altyapı
           </h4>
           <div style="display: flex; flex-wrap: wrap; gap: 6px">
             <span
@@ -2431,6 +2460,145 @@
       </div>
     </div>
 
+    <!-- 📊 İSTATİSTİK DASHBOARD MODALI (Chart.js) -->
+    <div
+      id="istatistikDashboardModal"
+      style="
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(5px);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+      "
+    >
+      <div
+        style="
+          background: rgba(255, 255, 255, 0.98);
+          backdrop-filter: blur(10px);
+          width: 720px;
+          max-width: 92vw;
+          max-height: 88vh;
+          padding: 24px;
+          border-radius: 18px;
+          box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+          position: relative;
+          display: flex;
+          flex-direction: column;
+        "
+      >
+        <button
+          onclick="closeIstatistikDashboardModal()"
+          style="
+            position: absolute;
+            right: 16px;
+            top: 16px;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #64748b;
+          "
+        >
+          ✕
+        </button>
+        <h3
+          style="
+            margin-bottom: 4px;
+            color: #0f172a;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+          "
+        >
+          İstatistik Dashboard
+        </h3>
+        <p
+          id="istatistikDashboardAltyazi"
+          style="font-size: 12px; color: #64748b; margin-bottom: 16px"
+        >
+          Yetki bölgenizdeki onaylı bina/adres kayıtlarına göre.
+        </p>
+
+        <div
+          id="istatistikDashboardYukleniyor"
+          style="
+            display: none;
+            text-align: center;
+            color: #94a3b8;
+            font-size: 13px;
+            padding: 40px 0;
+          "
+        >
+          Yükleniyor...
+        </div>
+
+        <div
+          id="istatistikDashboardBos"
+          style="
+            display: none;
+            text-align: center;
+            color: #94a3b8;
+            font-size: 13px;
+            padding: 40px 0;
+          "
+        >
+          Gösterilecek onaylı bina/adres kaydı bulunamadı.
+        </div>
+
+        <div
+          id="istatistikDashboardIcerik"
+          style="
+            display: none;
+            overflow-y: auto;
+            flex-direction: column;
+            gap: 22px;
+          "
+        >
+          <div>
+            <h5
+              style="
+                font-size: 12px;
+                font-weight: 700;
+                color: #475569;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                margin-bottom: 10px;
+              "
+            >
+              Yapı Durumu Dağılımı
+            </h5>
+            <div style="position: relative; height: 240px">
+              <canvas id="grafikYapiDurumu"></canvas>
+            </div>
+          </div>
+
+          <div>
+            <h5
+              style="
+                font-size: 12px;
+                font-weight: 700;
+                color: #475569;
+                text-transform: uppercase;
+                letter-spacing: 0.3px;
+                margin-bottom: 10px;
+              "
+            >
+              Mahallelere Göre Bina Sayısı
+            </h5>
+            <div style="position: relative; height: 260px">
+              <canvas id="grafikMahalleSayilari"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- 📜 GEÇMİŞ İŞLEMLERİM MODALI -->
     <div
       id="gecmisModal"
@@ -2714,6 +2882,83 @@
       </div>
     </div>
 
+    <!-- 📜 KAYITLI ÇİZİMLER MODALI -->
+    <div
+      id="kayitliCizimlerModal"
+      style="
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(5px);
+        z-index: 9999;
+        justify-content: center;
+        align-items: center;
+      "
+    >
+      <div
+        style="
+          background: white;
+          width: 560px;
+          max-height: 80vh;
+          padding: 24px;
+          border-radius: 16px;
+          box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.2);
+          position: relative;
+          display: flex;
+          flex-direction: column;
+        "
+      >
+        <button
+          onclick="closeKayitliCizimlerModal()"
+          style="
+            position: absolute;
+            right: 16px;
+            top: 16px;
+            background: none;
+            border: none;
+            font-size: 18px;
+            cursor: pointer;
+            color: #64748b;
+          "
+        >
+          ✕
+        </button>
+        <h3 style="margin-bottom: 4px; color: #0f172a">
+           Kayıtlı Çizim Geçmişi
+        </h3>
+        <p style="font-size: 12px; color: #64748b; margin-bottom: 14px">
+          Veritabanına kaydedilen çizimleri haritada görüntüleyin veya yönetin.
+        </p>
+
+        <div
+          id="kayitliCizimlerListesi"
+          style="
+            flex: 1;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            padding-right: 4px;
+          "
+        >
+          <div
+            style="
+              font-size: 12px;
+              color: #94a3b8;
+              text-align: center;
+              padding: 20px;
+            "
+          >
+            Yükleniyor...
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- ⏳ KULLANICI: ONAY BEKLEYEN BİNALARIM MODALI -->
     <div
       id="kullaniciBekleyenModal"
@@ -2826,7 +3071,7 @@
           ✕
         </button>
         <h3 style="margin-bottom: 4px; color: #0f172a">
-          🏢 MAKS Numarataj Şeması ve Kat Planı
+          MAKS Numarataj Şeması ve Kat Planı
         </h3>
         <p
           id="binaDetayAdresBaslik"
@@ -2871,7 +3116,8 @@
               display: block;
               margin-bottom: 8px;
             "
-            >➕ Yeni Bağımsız Bölüm Ekle</span
+          >
+            Yeni Bağımsız Bölüm Ekle</span
           >
           <div style="display: flex; gap: 6px; margin-bottom: 8px">
             <input
@@ -2904,7 +3150,7 @@
             onclick="bagimsizBolumEkle()"
             style="background-color: #0e8577"
           >
-            💾 Şemaya Kaydet
+            Şemaya Kaydet
           </button>
         </div>
 
@@ -2929,7 +3175,7 @@
               cursor: pointer;
             "
           >
-            📜 Değişiklik Geçmişini Göster / Gizle
+            Değişiklik Geçmişini Göster / Gizle
           </button>
           <div
             id="binaGecmisiListesi"
@@ -2952,6 +3198,7 @@
     <script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
     <!-- Harita Ekran Görüntüsü (Export) İçin html2canvas -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
     <!-- 📍 Mini-Map (Overview Map) Eklentisi -->
     <link
       rel="stylesheet"
@@ -3683,14 +3930,35 @@
         },
       };
 
+      // 🏠 BİNALAR İÇİN ÖZEL PİN İKONU (OSM Geometrik Şekillerinden Tamamen Farklı)
       function binaMarkerIkonuOlustur(kod) {
         const kat = BINA_DURUMLARI[kod] || BINA_DURUMLARI.ruhsatli;
+
+        // Binalara özel, renkli kenarlıklı ve gölgeli rozet pin tasarımı
+        const htmlIcerik = `
+    <div style="
+      background-color: #ffffff;
+      border: 2px solid ${kat.renk};
+      border-radius: 50%;
+      width: 28px;
+      height: 28px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 13px;
+      box-shadow: 0 3px 6px rgba(0,0,0,0.3);
+      cursor: pointer;
+    ">
+      ${kat.emoji}
+    </div>
+  `;
+
         return L.divIcon({
-          className: "osm-marker-icon",
-          html: sekilSvgOlustur(kat.sekil, kat.renk),
-          iconSize: [26, 26],
-          iconAnchor: [13, 13],
-          popupAnchor: [0, -13],
+          className: "bina-custom-pin",
+          html: htmlIcerik,
+          iconSize: [28, 28],
+          iconAnchor: [14, 14],
+          popupAnchor: [0, -14],
         });
       }
 
@@ -3708,10 +3976,21 @@
           const satir = document.createElement("label");
           satir.className = "osm-legend-item";
           satir.innerHTML = `
-            <span class="osm-legend-shape">${sekilSvgOlustur(kat.sekil, kat.renk)}</span>
-            <span class="osm-legend-label">${kat.emoji} ${kat.ad}</span>
-            <input type="checkbox" checked onchange="binaKategoriGoster('${kod}', this.checked)" />
-          `;
+      <span style="
+        background: #fff;
+        border: 2px solid ${kat.renk};
+        border-radius: 50%;
+        width: 20px;
+        height: 20px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 10px;
+        flex-shrink: 0;
+      ">${kat.emoji}</span>
+      <span class="osm-legend-label" style="margin-left: 6px;">${kat.ad}</span>
+      <input type="checkbox" checked onchange="binaKategoriGoster('${kod}', this.checked)" />
+    `;
           kutu.appendChild(satir);
         });
       }
@@ -3855,6 +4134,16 @@
           .catch((err) => {
             console.error("Bina/adres verisi hatası:", err);
           });
+        // Binalar çizildikten sonra etiketleri kontrol et
+        if (typeof window.binaEtiketleriniGuncelle === "function") {
+          window.binaEtiketleriniGuncelle();
+        }
+        // Binalar çizildikten 1 saniye sonra etiketleri haritadaki marker'lara bağla
+        setTimeout(function () {
+          if (typeof window.binaEtiketleriniGuncelle === "function") {
+            window.binaEtiketleriniGuncelle();
+          }
+        }, 1000);
       }
 
       // OSM verisi sadece bir kez, checkbox ilk işaretlendiğinde çekilir (lazy load)
@@ -6641,6 +6930,186 @@
           rozet.style.right = "15px";
         }
       }
+      // ============================================================
+      // 📊 İSTATİSTİK DASHBOARD MODALI (Chart.js — Pasta + Çubuk Grafik)
+      // ============================================================
+      window._grafikYapiDurumu = null;
+      window._grafikMahalleSayilari = null;
+
+      window.openIstatistikDashboardModal = function () {
+        if (!window.aktifKullanici) {
+          alert("Lütfen önce giriş yapın!");
+          return;
+        }
+
+        document.getElementById("istatistikDashboardModal").style.display =
+          "flex";
+        const yukleniyor = document.getElementById(
+          "istatistikDashboardYukleniyor",
+        );
+        const bos = document.getElementById("istatistikDashboardBos");
+        const icerik = document.getElementById("istatistikDashboardIcerik");
+
+        yukleniyor.style.display = "block";
+        bos.style.display = "none";
+        icerik.style.display = "none";
+
+        yetkiliFetch("/api/adresler")
+          .then(async (res) => {
+            const veri = await res.json();
+            if (!res.ok) throw new Error(veri.error || "Veri alınamadı.");
+            return veri;
+          })
+          .then((data) => {
+            const features = (data && data.features) || [];
+            yukleniyor.style.display = "none";
+
+            if (features.length === 0) {
+              bos.style.display = "block";
+              return;
+            }
+
+            icerik.style.display = "flex";
+            istatistikGraflerinCiz(features);
+          })
+          .catch((err) => {
+            yukleniyor.style.display = "none";
+            bos.style.display = "block";
+            bos.innerText = "⚠️ " + err.message;
+          });
+      };
+
+      window.closeIstatistikDashboardModal = function () {
+        document.getElementById("istatistikDashboardModal").style.display =
+          "none";
+      };
+
+      function istatistikGraflerinCiz(features) {
+        // Chart.js kütüphanesinin yüklü olup olmadığını kontrol et
+        if (
+          typeof Chart === "undefined" &&
+          typeof window.Chart === "undefined"
+        ) {
+          const bos = document.getElementById("istatistikDashboardBos");
+          const icerik = document.getElementById("istatistikDashboardIcerik");
+          if (icerik) icerik.style.display = "none";
+          if (bos) {
+            bos.style.display = "block";
+            bos.innerHTML =
+              "⚠️ Chart.js kütüphanesi yüklenemedi. Lütfen internet bağlantınızı kontrol edip sayfayı yenileyin.";
+          }
+          return;
+        }
+
+        const ChartObj = window.Chart || Chart;
+
+        // --- 1) YAPI DURUMU DAĞILIMI (PASTA GRAFİK) ---
+        const durumSayaci = {};
+        Object.keys(BINA_DURUMLARI).forEach((kod) => (durumSayaci[kod] = 0));
+
+        // --- 2) MAHALLEYE GÖRE BİNA SAYISI (ÇUBUK GRAFİK) ---
+        const mahalleSayaci = {};
+
+        features.forEach((f) => {
+          const p = f.properties || {};
+          const kod = p.yapiDurumu || "ruhsatli";
+          durumSayaci[kod] = (durumSayaci[kod] || 0) + 1;
+
+          const mahalleAdi = p.mahalle || "Bilinmiyor";
+          mahalleSayaci[mahalleAdi] = (mahalleSayaci[mahalleAdi] || 0) + 1;
+        });
+
+        // ---- PASTA GRAFİK ----
+        const durumEtiketleri = Object.keys(BINA_DURUMLARI).map(
+          (kod) => `${BINA_DURUMLARI[kod].emoji} ${BINA_DURUMLARI[kod].ad}`,
+        );
+        const durumRenkleri = Object.keys(BINA_DURUMLARI).map(
+          (kod) => BINA_DURUMLARI[kod].renk,
+        );
+        const durumDegerleri = Object.keys(BINA_DURUMLARI).map(
+          (kod) => durumSayaci[kod] || 0,
+        );
+
+        const pastaCtx = document.getElementById("grafikYapiDurumu");
+        if (window._grafikYapiDurumu) window._grafikYapiDurumu.destroy();
+        window._grafikYapiDurumu = new ChartObj(pastaCtx, {
+          type: "doughnut",
+          data: {
+            labels: durumEtiketleri,
+            datasets: [
+              {
+                data: durumDegerleri,
+                backgroundColor: durumRenkleri,
+                borderColor: "#ffffff",
+                borderWidth: 2,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: {
+                position: "right",
+                labels: { font: { size: 11 }, boxWidth: 14 },
+              },
+              tooltip: {
+                callbacks: {
+                  label: function (ctx) {
+                    const toplam = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                    const yuzde = toplam
+                      ? ((ctx.parsed / toplam) * 100).toFixed(1)
+                      : 0;
+                    return `${ctx.label}: ${ctx.parsed} (%${yuzde})`;
+                  },
+                },
+              },
+            },
+          },
+        });
+
+        // ---- ÇUBUK GRAFİK (İlk 10 mahalle, azalan sırada) ----
+        const mahalleSiralanmis = Object.entries(mahalleSayaci)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 10);
+
+        const cubukCtx = document.getElementById("grafikMahalleSayilari");
+        if (window._grafikMahalleSayilari)
+          window._grafikMahalleSayilari.destroy();
+        window._grafikMahalleSayilari = new ChartObj(cubukCtx, {
+          type: "bar",
+          data: {
+            labels: mahalleSiralanmis.map((m) => m[0]),
+            datasets: [
+              {
+                label: "Bina Sayısı",
+                data: mahalleSiralanmis.map((m) => m[1]),
+                backgroundColor: "#2563eb",
+                borderRadius: 6,
+                maxBarThickness: 28,
+              },
+            ],
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            indexAxis: "y",
+            plugins: {
+              legend: { display: false },
+            },
+            scales: {
+              x: {
+                beginAtZero: true,
+                ticks: { precision: 0, font: { size: 11 } },
+              },
+              y: {
+                ticks: { font: { size: 11 } },
+              },
+            },
+          },
+        });
+      }
+
       // 📊 NAVBARDAN TIKLANINCA PENCEREYİ AÇIP KAPATAN VE SAYILARI HESAPLAYAN FONKSİYON
       function toggleIstatistikPanel() {
         const panel = document.getElementById("istatistikPanel");
@@ -7215,6 +7684,281 @@
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
+      };
+      // 🏷️ Bina Etiketleri İçin Katman Grubu
+      window.binaEtiketKatmani = L.layerGroup();
+
+      // 🏷️ Bina İsimlerini Bütün Olası Veri Alanlarından Çeken Kesin Çözüm
+      window.binaEtiketleriniGuncelle = function () {
+        if (!window.map) return;
+
+        const mevcutZoom = window.map.getZoom();
+        const MIN_ZOOM = 12; // Düşük zoom seviyesinde görünmesi için
+
+        const tumBinalar = window.mevcutBinaListesi || window.tumBinalar || [];
+
+        window.map.eachLayer(function (layer) {
+          if (
+            (layer instanceof L.Marker || layer instanceof L.CircleMarker) &&
+            layer.options
+          ) {
+            const latlng = layer.getLatLng ? layer.getLatLng() : null;
+            if (!latlng) return;
+
+            // Katmandaki veya options içindeki verileri al
+            let props =
+              layer.feature && layer.feature.properties
+                ? layer.feature.properties
+                : layer.options;
+
+            // Hafızadaki binalarla enlem/boylam eşleşmesi dene
+            if (tumBinalar.length > 0) {
+              const eslesen = tumBinalar.find(
+                (b) =>
+                  Math.abs((b.lat || b.enlem) - latlng.lat) < 0.0001 &&
+                  Math.abs((b.lng || b.boylam) - latlng.lng) < 0.0001,
+              );
+              if (eslesen) {
+                props = { ...props, ...eslesen };
+              }
+            }
+
+            // Olası tüm Bina Adı alanlarını kontrol et
+            const hamBinaAdi =
+              props.bina_adi ||
+              props.bina_ismi ||
+              props.binaAdi ||
+              props.name ||
+              props.title ||
+              "";
+            const binaAdi = hamBinaAdi && hamBinaAdi !== "-" ? hamBinaAdi : "";
+
+            // Olası tüm Kapı No alanlarını kontrol et
+            const hamKapiNo =
+              props.dis_kapi_no ||
+              props.kapi_no ||
+              props.kapino ||
+              props.disKapiNo ||
+              "";
+            const kapiNo =
+              hamKapiNo && hamKapiNo !== "-" ? `No: ${hamKapiNo}` : "";
+
+            // Olası tüm Mahalle alanlarını kontrol et
+            const hamMahalle =
+              props.mahalle || props.mahalle_adi || props.district || "";
+            const mahalle = hamMahalle && hamMahalle !== "-" ? hamMahalle : "";
+
+            // Etiket Metnini Oluştur (Bina kelimesi EKLENMEZ)
+            let etiketMetni = "";
+
+            if (binaAdi && kapiNo) {
+              etiketMetni = `${binaAdi} (${kapiNo})`;
+            } else if (binaAdi) {
+              etiketMetni = binaAdi;
+            } else if (kapiNo) {
+              etiketMetni = kapiNo;
+            } else if (mahalle) {
+              etiketMetni = mahalle; // Sadece mahalle adı yazar, yanına 'Bina' eklenmez
+            }
+
+            if (etiketMetni) {
+              if (mevcutZoom >= MIN_ZOOM) {
+                if (!layer.getTooltip()) {
+                  layer.bindTooltip(`🏢 ${etiketMetni}`, {
+                    permanent: true,
+                    direction: "top",
+                    className: "bina-label-style",
+                    offset: [0, -10],
+                  });
+                } else {
+                  layer.setTooltipContent(`🏢 ${etiketMetni}`);
+                }
+                layer.openTooltip();
+              } else {
+                if (layer.getTooltip()) {
+                  layer.closeTooltip();
+                }
+              }
+            }
+          }
+        });
+      };
+      // 🔍 Zoom veya Harita Hareketi Bittiğinde Etiketleri Güncelle
+      if (window.map) {
+        window.map.on("zoomend moveend", function () {
+          window.binaEtiketleriniGuncelle();
+        });
+      }
+      // 💾 Haritadaki TÜM Çizimleri (Birden Fazla Olsalar Bile) Aktif Kullanıcıyla Kaydetme
+      window.cizimiVeritabaninaKaydet = function () {
+        if (!window.aktifKullanici) {
+          alert("⚠️ Lütfen önce giriş yapın!");
+          return;
+        }
+
+        // cizimGroup içindeki tüm çizimleri GeoJSON FeatureCollection olarak topla
+        if (!cizimGroup || cizimGroup.getLayers().length === 0) {
+          alert(
+            "⚠️ Lütfen önce harita üzerinde en az bir çizim (poligon, çizgi veya nokta) yapın!",
+          );
+          return;
+        }
+
+        const baslik = prompt(
+          "Lütfen bu çizim paketi için bir başlık/isim girin:",
+          "Saha Çalışma Alanı",
+        );
+        if (!baslik || !baslik.trim()) return;
+
+        // Haritadaki BÜTÜN çizimleri tek bir paket (FeatureCollection) yapar!
+        const tumCizimlerGeoJSON = cizimGroup.toGeoJSON();
+        const elemanSayisi = cizimGroup.getLayers().length;
+        const cizimTipi =
+          elemanSayisi > 1
+            ? `Çoklu Vektör (${elemanSayisi} Nesne)`
+            : tumCizimlerGeoJSON.features[0]?.geometry?.type || "Vektör";
+
+        yetkiliFetch("/api/cizimler", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            baslik: baslik.trim(),
+            cizim_tipi: cizimTipi,
+            geojson_data: tumCizimlerGeoJSON,
+            kullanici_id: window.aktifKullanici.id,
+            kullanici_adi:
+              window.aktifKullanici.ad || window.aktifKullanici.kullaniciAdi,
+          }),
+        })
+          .then(async (res) => {
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Kayıt başarısız.");
+            return data;
+          })
+          .then((res) => {
+            alert(
+              `✅ ${elemanSayisi} adet çizim veritabanına "${window.aktifKullanici.ad}" hesabıyla başarıyla kaydedildi!`,
+            );
+            // Çizim yapıldıktan sonra ekrandakileri temizlemek istersen cizimGroup.clearLayers(); çağırabilirsin
+          })
+          .catch((err) => alert("⚠️ " + err.message));
+      };
+
+      // 📜 Kayıtlı Çizimleri Kullanıcıya Özel Listeleme
+      window.openKayitliCizimlerModal = function () {
+        if (!window.aktifKullanici) {
+          alert("Lütfen önce giriş yapın!");
+          return;
+        }
+        document.getElementById("kayitliCizimlerModal").style.display = "flex";
+        kayitliCizimleriYukle();
+      };
+
+      window.closeKayitliCizimlerModal = function () {
+        document.getElementById("kayitliCizimlerModal").style.display = "none";
+      };
+
+      function kayitliCizimleriYukle() {
+        const kutu = document.getElementById("kayitliCizimlerListesi");
+        if (!kutu || !window.aktifKullanici) return;
+
+        kutu.innerHTML =
+          '<div style="font-size: 12px; color: #94a3b8; text-align: center; padding: 20px;">Yükleniyor...</div>';
+
+        const kullaniciId = window.aktifKullanici.id;
+        const isTamYetki = window.aktifKullanici.tamYetki;
+
+        // İstek atarken aktif kullanıcının ID'sini ve yetkisini gönderiyoruz
+        yetkiliFetch(
+          `/api/cizimler?kullanici_id=${kullaniciId}&tam_yetki=${isTamYetki}`,
+        )
+          .then(async (res) => {
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Liste alınamadı.");
+            return data;
+          })
+          .then((cizimler) => {
+            if (!cizimler || cizimler.length === 0) {
+              kutu.innerHTML =
+                '<div style="font-size: 12px; color: #94a3b8; text-align: center; padding: 20px;">Hesabınıza ait kayıtlı bir çizim bulunmuyor.</div>';
+              return;
+            }
+
+            kutu.innerHTML = cizimler
+              .map((c) => {
+                const tarih = c.olusturma_tarihi
+                  ? new Date(c.olusturma_tarihi).toLocaleString("tr-TR")
+                  : "Tarih Belirtilmedi";
+
+                const kullaniciEtiketi = isTamYetki
+                  ? `👤 Ekleyen: <b>${c.kullanici_adi || "Bilinmiyor"}</b> | `
+                  : "";
+
+                return `
+            <div style="padding: 10px 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #fbfcfd; display: flex; justify-content: space-between; align-items: center;">
+              <div>
+                <div style="font-size: 13px; font-weight: 700; color: #1e293b;"> ${c.baslik}</div>
+                <div style="font-size: 11px; color: #64748b; margin-top: 2px;">
+                  ${kullaniciEtiketi}Tür: <b>${c.cizim_tipi || "Vektör"}</b> |  ${tarih}
+                </div>
+              </div>
+              <div style="display: flex; gap: 6px;">
+                <button onclick='cizimiHaritayaYukle(${JSON.stringify(c.geojson_data)})' style="background: #0e8577; color: white; border: none; padding: 5px 10px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer;"> Haritada Göster</button>
+                <button onclick="cizimSil(${c.id})" style="background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; padding: 5px 8px; border-radius: 6px; font-size: 11px; cursor: pointer;">🗑️</button>
+              </div>
+            </div>
+          `;
+              })
+              .join("");
+          })
+          .catch((err) => {
+            kutu.innerHTML = `<div style="font-size: 12px; color: #dc2626; text-align: center; padding: 20px;">⚠️ ${err.message}</div>`;
+          });
+      }
+
+      // 🗺️ Seçilen Çizim Paketini Haritaya Eksiksiz Çizme ve Odaklanma
+      window.cizimiHaritayaYukle = function (geojsonData) {
+        closeKayitliCizimlerModal();
+
+        if (typeof geojsonData === "string") {
+          geojsonData = JSON.parse(geojsonData);
+        }
+
+        // Haritadaki mevcut geçici çizimleri temizle
+        if (cizimGroup) cizimGroup.clearLayers();
+
+        const yeniLayer = L.geoJSON(geojsonData, {
+          style: {
+            color: "#7c3aed",
+            weight: 3,
+            fillColor: "#a855f7",
+            fillOpacity: 0.35,
+          },
+          onEachFeature: function (feature, layer) {
+            cizimGroup.addLayer(layer); // Bütün çizimleri ana gruba ekler
+          },
+        }).addTo(map);
+
+        if (yeniLayer.getBounds().isValid()) {
+          map.fitBounds(yeniLayer.getBounds(), { padding: [30, 30] });
+        }
+
+        alert("✅ Çizim paketi haritaya yüklendi ve odaklandı!");
+      };
+
+      // 🗑️ Çizim Silme
+      window.cizimSil = function (id) {
+        if (
+          !confirm("Bu çizimi veritabanından silmek istediğinize emin misiniz?")
+        )
+          return;
+
+        yetkiliFetch(`/api/cizimler/${id}`, { method: "DELETE" })
+          .then(async (res) => {
+            if (!res.ok) throw new Error("Silme başarısız.");
+            kayitliCizimleriYukle();
+          })
+          .catch((err) => alert("⚠️ " + err.message));
       };
     </script>
   </body>

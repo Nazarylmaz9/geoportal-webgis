@@ -1288,6 +1288,86 @@ app.post('/api/analiz/en-yakin-tesis', girisGerekli, async (req, res) => {
         res.status(500).json({ error: "En yakın tesis hesaplanırken sunucu hatası oluştu.", detay: err.message });
     }
 });
+// 🔐 JWT Token Doğrulama Middleware
+const yetkiKontrolu = (req, res, next) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ error: 'Erişim yetkisi yok (Token bulunamadı).' });
+  }
+
+  jwt.verify(token, process.env.JWT_SECRET || 'gizli_anahtar', (err, user) => {
+    if (err) {
+      return res.status(403).json({ error: 'Geçersiz veya süresi dolmuş token.' });
+    }
+    req.user = user;
+    next();
+  });
+};
+// 📜 1. Kayıtlı Çizimleri Getirme (Sadece aktif olan "is_active = true" kayıtlar çekilir)
+app.get('/api/cizimler', async (req, res) => {
+  try {
+    const kullaniciId = req.query.kullanici_id;
+    const isTamYetki = req.query.tam_yetki === 'true';
+
+    let query = "SELECT * FROM cizimler WHERE is_active = TRUE ORDER BY id DESC";
+    let params = [];
+
+    // Admin (tam yetki) değilse sadece oturum açan kullanıcının AKTİF çizimlerini çek
+    if (!isTamYetki && kullaniciId) {
+      query = "SELECT * FROM cizimler WHERE kullanici_id = $1 AND is_active = TRUE ORDER BY id DESC";
+      params = [kullaniciId];
+    }
+
+    const result = await pool.query(query, params);
+    res.json(result.rows || []);
+  } catch (err) {
+    console.error("GET /api/cizimler Hatası:", err);
+    res.status(500).json({ error: "Çizimler veritabanından alınamadı." });
+  }
+});
+
+// 💾 2. Yeni Çizim Kaydetme (Varsayılan olarak is_active = true eklenir)
+app.post('/api/cizimler', async (req, res) => {
+  try {
+    const { baslik, cizim_tipi, geojson_data, kullanici_id, kullanici_adi } = req.body;
+
+    const geojsonObj = typeof geojson_data === 'string' ? geojson_data : JSON.stringify(geojson_data);
+
+    const result = await pool.query(
+      `INSERT INTO cizimler (kullanici_id, kullanici_adi, baslik, cizim_tipi, geojson_data, is_active) 
+       VALUES ($1, $2, $3, $4, $5::jsonb, TRUE) RETURNING *`,
+      [
+        kullanici_id || null, 
+        kullanici_adi || 'Bilinmeyen Kullanıcı', 
+        baslik, 
+        cizim_tipi || 'Karma Vektör', 
+        geojsonObj
+      ]
+    );
+
+    res.json({ message: "Çizim kaydedildi!", cizim: result.rows[0] });
+  } catch (err) {
+    console.error("POST /api/cizimler Hatası:", err);
+    res.status(500).json({ error: "Çizim veritabanına kaydedilemedi." });
+  }
+});
+
+// 🗑️ 3. Çizim Silme (SOFT DELETE — Veriyi fiziksel silmez, is_active = FALSE yapar)
+app.delete('/api/cizimler/:id', async (req, res) => {
+  try {
+    const cizimId = req.params.id;
+
+    // DELETE FROM yerine UPDATE ile pasife alıyoruz
+    await pool.query("UPDATE cizimler SET is_active = FALSE WHERE id = $1", [cizimId]);
+
+    res.json({ message: "Çizim başarıyla pasife alındı (Soft Delete)." });
+  } catch (err) {
+    console.error("DELETE /api/cizimler Hatası:", err);
+    res.status(500).json({ error: "Çizim pasife alınamadı." });
+  }
+});
 app.listen(PORT, () => {
     console.log(`Sunucu http://localhost:${PORT} adresinde çalışıyor! `);
 });
